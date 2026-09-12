@@ -1,7 +1,6 @@
 import type { QuotaWindow } from '@/utils/providers';
-import { sanitizeErrorMessage, extractErrorMessage } from '@/utils/sanitize';
+import { createRequestSignal, parseApiCallEnvelope } from '@/utils/http';
 import { decodeJwtPayload } from '@/utils/jwt';
-import { createRequestSignal, getStatusCode, parseApiCallEnvelope, type UpstreamEnvelope } from '@/utils/http';
 
 function clamp(val: number, min: number, max: number): number {
   return Math.min(Math.max(val, min), max);
@@ -142,20 +141,16 @@ export async function fetchCodexQuota(
 
   // Parse manual credits if available
   let manualResetCredits: number | undefined;
-  if (creditsRes && creditsRes.ok) {
+  if (creditsRes) {
     try {
-      const credEnv: unknown = await creditsRes.json();
-      if (credEnv && typeof credEnv === 'object' && getStatusCode(credEnv) === 200) {
-        let credBody = (credEnv as UpstreamEnvelope).body;
-        if (typeof credBody === 'string') credBody = JSON.parse(credBody);
-        if (credBody && typeof credBody === 'object') {
-          const cb = credBody as Record<string, unknown>;
-          const rlc = (cb.rate_limit_reset_credits as Record<string, unknown> | undefined) ?? cb;
-          if (typeof rlc.available_count === 'number') {
-            manualResetCredits = rlc.available_count;
-          } else if (typeof rlc.availableCount === 'number') {
-            manualResetCredits = rlc.availableCount;
-          }
+      const parsedCredits = await parseApiCallEnvelope(creditsRes);
+      if (parsedCredits.ok && parsedCredits.body && typeof parsedCredits.body === 'object') {
+        const cb = parsedCredits.body as Record<string, unknown>;
+        const rlc = (cb.rate_limit_reset_credits as Record<string, unknown> | undefined) ?? cb;
+        if (typeof rlc.available_count === 'number') {
+          manualResetCredits = rlc.available_count;
+        } else if (typeof rlc.availableCount === 'number') {
+          manualResetCredits = rlc.availableCount;
         }
       }
     } catch {

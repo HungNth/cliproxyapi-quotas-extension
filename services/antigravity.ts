@@ -1,5 +1,5 @@
 import type { QuotaWindow, RawAuthFile } from '@/utils/providers';
-import { sanitizeErrorMessage, extractErrorMessage } from '@/utils/sanitize';
+import { sanitizeErrorMessage } from '@/utils/sanitize';
 import { createRequestSignal, parseApiCallEnvelope } from '@/utils/http';
 
 const ANTIGRAVITY_ENDPOINTS = [

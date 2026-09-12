@@ -67,6 +67,7 @@ export function classifyProvider(raw: RawAuthFile): ProviderType | null {
   }
 
   if (p.includes('claude') || p.includes('anthropic')) {
+    if (p.includes('apikey')) return null;
     const accType = (raw.account_type ?? '').toLowerCase().replace(/[-_]/g, '');
     const authType = (raw.auth_type ?? '').toLowerCase().replace(/[-_]/g, '');
     const isApiKey =

@@ -82,9 +82,15 @@ async function runRefresh(): Promise<void> {
         if (verRes.latestVersion) {
           latestVersion.value = verRes.latestVersion;
           updateAvailable.value = verRes.updateAvailable;
+        } else {
+          latestVersion.value = undefined;
+          updateAvailable.value = false;
         }
       })
-      .catch(() => {});
+      .catch(() => {
+        latestVersion.value = undefined;
+        updateAvailable.value = false;
+      });
 
   } finally {
     refreshing.value = false;
