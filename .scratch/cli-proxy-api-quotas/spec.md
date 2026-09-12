@@ -42,7 +42,7 @@ Build a Chrome/Chromium Manifest V3 extension with WXT and Vue. The popup stores
 28. As an Antigravity user, I want model quotas summarized into the supported Claude/GPT and Gemini families, so that a large model list remains readable.
 29. As a Claude OAuth user, I want to see five-hour and seven-day remaining capacity and reset timing, so that I can plan usage across both windows.
 30. As a Claude API-key user, I want unsupported OAuth quota inspection skipped safely, so that the extension does not issue an invalid usage request.
-31. As a user with unsupported providers, I want them ignored without breaking supported Provider Groups, so that one unknown account type does not prevent the dashboard from loading.
+31. As a user with unsupported providers, I want them ignored without breaking supported Provider Groups, so that one unsupported Provider Account does not prevent the dashboard from loading.
 32. As a user, I want all provider responses normalized as percentage remaining rather than mixed remaining/used values, so that progress bars have consistent meaning.
 33. As a user, I want reset times displayed in my local time zone with a human-readable countdown, so that I can understand when capacity returns.
 34. As a user leaving the popup open, I want countdown text updated locally every ten seconds without network requests, so that the displayed reset estimate remains useful.

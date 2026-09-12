@@ -28,7 +28,7 @@ export function isValidAuthFilesData(data: unknown): data is { files: RawAuthFil
       typeof data === 'object' &&
       'files' in data &&
       Array.isArray(data.files) &&
-      data.files.every((item) => item !== null && typeof item === 'object')
+      data.files.every((item) => item !== null && typeof item === 'object' && !Array.isArray(item))
   );
 }
 

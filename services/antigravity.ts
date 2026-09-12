@@ -196,6 +196,8 @@ export async function fetchAntigravityQuota(
     if (typeof info.remainingFraction === 'number') {
       const frac = info.remainingFraction <= 1.0 ? info.remainingFraction * 100 : info.remainingFraction;
       pct = clamp(Math.round(frac), 0, 100);
+    } else if (reset) {
+      pct = 0;
     }
     if (isClaudeGpt) {
       hasClaudeGpt = true;
