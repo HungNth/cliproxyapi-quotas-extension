@@ -13,7 +13,7 @@ export function sanitizeErrorMessage(raw: string, statusCode?: number): string {
   let cleaned = raw
     .replace(/(?:authorization[:=\s]+)?(?:bearer|basic)\s+[A-Za-z0-9._~+/-]+=*/gi, 'Authorization: [REDACTED]')
     .replace(/(authorization[:=\s]+)[^\s,;]+/gi, '$1[REDACTED]')
-    .replace(/(api[_-]?key|token|secret|password)[:=\s]+["']?[A-Za-z0-9._~+/-]+["']?/gi, '$1=[REDACTED]')
+    .replace(/(api[\s_-]?key|token|secret|password|credential)[:=\s]+["']?[A-Za-z0-9._~+/-]+["']?/gi, '$1=[REDACTED]')
     .replace(/[a-zA-Z0-9_-]{32,}/g, '[REDACTED]')
     .trim();
 

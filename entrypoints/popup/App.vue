@@ -7,11 +7,12 @@ import {
   saveConnection,
   clearConnection,
 } from '@/utils/connection';
-import { discoverProviderAccounts, checkLatestVersion } from '@/services/quota';
+import { discoverProviderAccounts, fetchLatestVersion } from '@/services/quota';
 import {
   type ProviderGroup,
   formatCountdown,
   formatLocalResetTime,
+  compareVersions,
 } from '@/utils/providers';
 
 const baseUrl = ref('http://127.0.0.1:8317');
@@ -56,6 +57,14 @@ async function runRefresh(): Promise<void> {
   }
   activeAbortController = new AbortController();
   const generation = ++currentRefreshGeneration;
+
+  // Fire independent version check concurrently at the start of Refresh
+  const versionPromise = fetchLatestVersion(
+    savedBaseUrl.value,
+    savedManagementKey.value,
+    activeAbortController.signal
+  );
+
   try {
     const res = await discoverProviderAccounts(
       savedBaseUrl.value,
@@ -72,28 +81,27 @@ async function runRefresh(): Promise<void> {
 
     groups.value = res.groups;
     currentVersion.value = res.currentVersion;
+    if (generation === currentRefreshGeneration) {
+      refreshing.value = false;
+    }
 
-    // Independent version check: part of Refresh lifecycle, guarded so failure never affects quota
-    try {
-      const verRes = await checkLatestVersion(
-        savedBaseUrl.value,
-        savedManagementKey.value,
-        res.currentVersion,
-        activeAbortController.signal
-      );
-      if (generation !== currentRefreshGeneration) return;
-      if (verRes.latestVersion) {
-        latestVersion.value = verRes.latestVersion;
-        updateAvailable.value = verRes.updateAvailable;
-      } else {
+    // Process version check result as soon as it arrives (independent of quota queries)
+    versionPromise
+      .then((latest) => {
+        if (generation !== currentRefreshGeneration) return;
+        if (latest) {
+          latestVersion.value = latest;
+          updateAvailable.value = compareVersions(res.currentVersion, latest);
+        } else {
+          latestVersion.value = undefined;
+          updateAvailable.value = false;
+        }
+      })
+      .catch(() => {
+        if (generation !== currentRefreshGeneration) return;
         latestVersion.value = undefined;
         updateAvailable.value = false;
-      }
-    } catch {
-      if (generation !== currentRefreshGeneration) return;
-      latestVersion.value = undefined;
-      updateAvailable.value = false;
-    }
+      });
   } finally {
     if (generation === currentRefreshGeneration) {
       refreshing.value = false;
@@ -379,7 +387,7 @@ function getTextColor(percent: number | null): string {
       </div>
 
       <!-- Loading state on initial refresh -->
-      <div v-else-if="refreshing" class="py-8 text-center text-xs text-zinc-500">
+      <div v-else-if="refreshing && groups.length === 0" class="py-8 text-center text-xs text-zinc-500">
         Loading provider accounts…
       </div>
 

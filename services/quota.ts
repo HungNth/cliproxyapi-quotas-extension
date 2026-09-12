@@ -21,32 +21,29 @@ export interface DiscoveryResult {
   currentVersion?: string;
 }
 
-export async function checkLatestVersion(
+export async function fetchLatestVersion(
   baseUrl: string,
   managementKey: string,
-  currentVersion?: string,
   signal?: AbortSignal
-): Promise<{ latestVersion?: string; updateAvailable: boolean }> {
+): Promise<string | undefined> {
   try {
     const res = await fetch(`${baseUrl}/v0/management/latest-version`, {
       method: 'GET',
       headers: { Authorization: `Bearer ${managementKey}` },
       signal: createRequestSignal(signal),
     });
-    if (!res.ok) return { updateAvailable: false };
+    if (!res.ok) return undefined;
     const data: unknown = await res.json();
     if (data && typeof data === 'object' && 'latest-version' in data) {
       const raw = data['latest-version'];
       if (typeof raw === 'string') {
-        const latestVersion = raw.replace(/^[vV]/, '');
-        const updateAvailable = compareVersions(currentVersion, latestVersion);
-        return { latestVersion, updateAvailable };
+        return raw.replace(/^[vV]/, '');
       }
     }
   } catch {
     // ignore
   }
-  return { updateAvailable: false };
+  return undefined;
 }
 
 async function runWithConcurrency<T>(tasks: Array<() => Promise<T>>, limit: number): Promise<T[]> {
