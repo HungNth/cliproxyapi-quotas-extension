@@ -11,8 +11,9 @@ export function sanitizeErrorMessage(raw: string, statusCode?: number): string {
 
   // Remove Authorization Bearer tokens, long hex/base64 strings, key/token assignments
   let cleaned = raw
-    .replace(/Bearer\s+[A-Za-z0-9._~+/-]+=*/gi, 'Bearer [REDACTED]')
-    .replace(/(api[_-]?key|token|secret|password|authorization)[:=\s]+["']?[A-Za-z0-9._~+/-]+["']?/gi, '$1=[REDACTED]')
+    .replace(/(?:authorization[:=\s]+)?(?:bearer|basic)\s+[A-Za-z0-9._~+/-]+=*/gi, 'Authorization: [REDACTED]')
+    .replace(/(authorization[:=\s]+)[^\s,;]+/gi, '$1[REDACTED]')
+    .replace(/(api[_-]?key|token|secret|password)[:=\s]+["']?[A-Za-z0-9._~+/-]+["']?/gi, '$1=[REDACTED]')
     .replace(/[a-zA-Z0-9_-]{32,}/g, '[REDACTED]')
     .trim();
 

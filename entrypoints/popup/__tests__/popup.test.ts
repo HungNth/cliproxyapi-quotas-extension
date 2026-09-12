@@ -156,6 +156,31 @@ describe('Ticket 01: Configure one CLIProxyAPI Instance', () => {
     expect(stored.cpa_management_key).toBe('old-key');
   });
 
+  it('rejects malformed auth-files response containing null items', async () => {
+    fakeBrowser.permissions.request = vi.fn().mockResolvedValue(true);
+    fakeBrowser.permissions.remove = vi.fn().mockResolvedValue(true);
+
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers(),
+      json: async () => ({ files: [null] }),
+    });
+
+    const wrapper = mount(App);
+    await flushPromises();
+    await wrapper.vm.$nextTick();
+
+    await wrapper.find('input[data-testid="base-url"]').setValue('http://127.0.0.1:8317');
+    await wrapper.find('input[data-testid="management-key"]').setValue('test-key');
+    await wrapper.find('[data-testid="save-btn"]').trigger('click');
+
+    await flushPromises();
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.text()).toContain('Invalid response from CLIProxyAPI management endpoint');
+  });
+
   it('clears configuration and removes granted origin permission on Clear', async () => {
     await fakeBrowser.storage.local.set({
       cpa_base_url: 'http://127.0.0.1:8317',
@@ -588,7 +613,7 @@ describe('Ticket 03: Show live Codex quota windows', () => {
               status_code: 401,
               body: JSON.stringify({
                 error: {
-                  message: 'Unauthorized with Bearer sk-ant-secret12345678901234567890123456',
+                  message: 'Unauthorized with Authorization: Basic dXNlcjpwYXNz and Bearer sk-ant-secret12345678901234567890123456',
                 },
               }),
             }),
@@ -616,6 +641,7 @@ describe('Ticket 03: Show live Codex quota windows', () => {
 
     // Leaked token is redacted
     expect(text).toContain('leak@test.com');
+    expect(text).not.toContain('dXNlcjpwYXNz');
     expect(text).not.toContain('sk-ant-secret');
     expect(text).toContain('[REDACTED]');
   });

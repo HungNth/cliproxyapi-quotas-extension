@@ -176,9 +176,11 @@ export async function fetchAntigravityQuota(
   }
 
   // Aggregate into Claude & GPT and Gemini families
+  let hasClaudeGpt = false;
   let claudeGptMin: number | null = null;
   let claudeGptEarliestReset: string | undefined;
 
+  let hasGemini = false;
   let geminiMin: number | null = null;
   let geminiEarliestReset: string | undefined;
 
@@ -199,6 +201,7 @@ export async function fetchAntigravityQuota(
     }
 
     if (isClaudeGpt) {
+      hasClaudeGpt = true;
       if (pct !== null) {
         claudeGptMin = claudeGptMin === null ? pct : Math.min(claudeGptMin, pct);
       }
@@ -210,6 +213,7 @@ export async function fetchAntigravityQuota(
     }
 
     if (isGemini) {
+      hasGemini = true;
       if (pct !== null) {
         geminiMin = geminiMin === null ? pct : Math.min(geminiMin, pct);
       }
@@ -222,7 +226,7 @@ export async function fetchAntigravityQuota(
   }
 
   const windows: QuotaWindow[] = [];
-  if (claudeGptMin !== null) {
+  if (hasClaudeGpt) {
     windows.push({
       label: 'Claude & GPT models',
       remainingPercent: claudeGptMin,
@@ -230,7 +234,7 @@ export async function fetchAntigravityQuota(
     });
   }
 
-  if (geminiMin !== null) {
+  if (hasGemini) {
     windows.push({
       label: 'Gemini models',
       remainingPercent: geminiMin,

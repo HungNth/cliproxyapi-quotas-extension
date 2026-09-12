@@ -40,6 +40,7 @@ const currentTime = ref(Date.now());
 let countdownInterval: ReturnType<typeof setInterval> | null = null;
 
 let activeAbortController: AbortController | null = null;
+let currentRefreshGeneration = 0;
 
 async function runRefresh(): Promise<void> {
   if (!savedBaseUrl.value || !savedManagementKey.value) return;
@@ -54,13 +55,14 @@ async function runRefresh(): Promise<void> {
     activeAbortController.abort();
   }
   activeAbortController = new AbortController();
-
+  const generation = ++currentRefreshGeneration;
   try {
     const res = await discoverProviderAccounts(
       savedBaseUrl.value,
       savedManagementKey.value,
       activeAbortController.signal
     );
+    if (generation !== currentRefreshGeneration) return;
 
     if (!res.ok) {
       discoveryError.value = res.error ?? 'Failed to load quota snapshot';
@@ -71,29 +73,31 @@ async function runRefresh(): Promise<void> {
     groups.value = res.groups;
     currentVersion.value = res.currentVersion;
 
-    // Fire independent, non-blocking version check with discovered currentVersion
-    checkLatestVersion(
-      savedBaseUrl.value,
-      savedManagementKey.value,
-      res.currentVersion,
-      activeAbortController.signal
-    )
-      .then((verRes) => {
-        if (verRes.latestVersion) {
-          latestVersion.value = verRes.latestVersion;
-          updateAvailable.value = verRes.updateAvailable;
-        } else {
-          latestVersion.value = undefined;
-          updateAvailable.value = false;
-        }
-      })
-      .catch(() => {
+    // Independent version check: part of Refresh lifecycle, guarded so failure never affects quota
+    try {
+      const verRes = await checkLatestVersion(
+        savedBaseUrl.value,
+        savedManagementKey.value,
+        res.currentVersion,
+        activeAbortController.signal
+      );
+      if (generation !== currentRefreshGeneration) return;
+      if (verRes.latestVersion) {
+        latestVersion.value = verRes.latestVersion;
+        updateAvailable.value = verRes.updateAvailable;
+      } else {
         latestVersion.value = undefined;
         updateAvailable.value = false;
-      });
-
+      }
+    } catch {
+      if (generation !== currentRefreshGeneration) return;
+      latestVersion.value = undefined;
+      updateAvailable.value = false;
+    }
   } finally {
-    refreshing.value = false;
+    if (generation === currentRefreshGeneration) {
+      refreshing.value = false;
+    }
   }
 }
 

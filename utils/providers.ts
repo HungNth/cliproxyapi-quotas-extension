@@ -23,7 +23,13 @@ export interface RawAuthFile {
 }
 
 export function isValidAuthFilesData(data: unknown): data is { files: RawAuthFile[] } {
-  return Boolean(data && typeof data === 'object' && 'files' in data && Array.isArray(data.files));
+  return Boolean(
+    data &&
+      typeof data === 'object' &&
+      'files' in data &&
+      Array.isArray(data.files) &&
+      data.files.every((item) => item !== null && typeof item === 'object')
+  );
 }
 
 export interface QuotaWindow {
