@@ -1,9 +1,11 @@
 {
-    "name": "wxt-vue-starter",
-    "description": "manifest.json description",
+    "name": "cliproxyapi-quotas",
+    "description": "CLI Proxy API Quotas",
     "private": true,
     "version": "0.0.0",
     "type": "module",
+    "author": "HungNth",
+    "homepage": "https://github.com/cliproxyapi-quotas-extension",
     "scripts": {
         "dev": "wxt",
         "dev:firefox": "wxt -b firefox",
