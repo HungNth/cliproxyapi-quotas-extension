@@ -296,7 +296,7 @@ describe('Ticket 02: Discover Provider Accounts on Refresh', () => {
     expect(text).not.toContain('other@test.com');
 
     // Version update notice rendered as plain text without link/badge
-    expect(text).toContain('7.2.150 → 7.2.154 available');
+    expect(text).toContain('v7.2.150 → v7.2.154 available');
     expect(wrapper.find('a[href*="github.com"]').exists()).toBe(false);
   });
 
@@ -493,7 +493,7 @@ describe('Ticket 03: Show live Codex quota windows', () => {
     // 5-hour: 70% remaining; Weekly: 15% remaining
     expect(text).toContain('70%');
     expect(text).toContain('15%');
-    expect(text).toContain('3 credits');
+    expect(text).toContain('Manual resets: 3');
   });
 
   it('sorts accounts by lowest remaining quota first, then name; preserves Partial Quota Snapshot on single account error', async () => {

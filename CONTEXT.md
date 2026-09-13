@@ -39,3 +39,7 @@ _Avoid_: Poll, auto-refresh
 **CLIProxyAPI Update Notice**:
 An indication that the connected CLIProxyAPI Instance is older than the latest available CLIProxyAPI release.
 _Avoid_: Extension update, provider update
+
+**Manual Reset Allowance**:
+The number of manual quota reset actions remaining for a Codex Provider Account before the next cycle.
+_Avoid_: Credits, manual reset tokens, reset budget
