@@ -246,18 +246,9 @@ export async function fetchAntigravityQuota(
 
   const hasAnyQuota = families[0]?.remainingPercent !== null || families[1]?.remainingPercent !== null;
 
-  if (!hasAnyQuota) {
-    return {
-      ok: false,
-      windows: [],
-      error: { message: 'no supported model quota returned' },
-    };
-  }
-
-  const activeWindows = families.filter((f) => f.remainingPercent !== null);
-
   return {
-    ok: true,
-    windows: activeWindows,
+    ok: hasAnyQuota,
+    windows: families,
+    error: hasAnyQuota ? undefined : { message: 'no supported model quota returned' },
   };
 }

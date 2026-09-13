@@ -1035,6 +1035,8 @@ describe('Ticket 05: Add Antigravity quota-family support', () => {
 
     const text = wrapper.text();
     expect(text).toContain('noproject@google.com');
+    expect(text).toContain('Claude & GPT models');
+    expect(text).toContain('Gemini models');
     expect(text).toContain('no supported model quota returned');
   });
 });

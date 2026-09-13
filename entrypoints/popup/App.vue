@@ -460,7 +460,7 @@ function getTextColor(percent: number | null): string {
               </div>
 
               <!-- Account-level Error -->
-              <div v-else-if="account.error" class="pt-1 text-xs text-red-600 dark:text-red-400 space-y-1">
+              <div v-if="account.error" class="pt-1 text-xs text-red-600 dark:text-red-400 space-y-1">
                 <div class="flex items-center justify-between">
                   <span class="truncate">{{ account.error.message }}</span>
                   <button
