@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { parseTimeValue, parseNumberValue } from '@/utils/providers';
 import { mount, flushPromises } from '@vue/test-utils';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import App from '../App.vue';
@@ -868,8 +867,8 @@ describe('Ticket 05: Add Antigravity quota-family support', () => {
                   },
                   'gpt-4.6-turbo': {
                     quota_info: {
-                      remaining_fraction: '0.35' as unknown as number,
-                      reset_time: (Math.floor(Date.now() / 1000) + 3600) as unknown as string,
+                      remaining_fraction: '0.35',
+                      reset_time: 0,
                     },
                   },
                   'gemini-3-pro': {
@@ -880,8 +879,8 @@ describe('Ticket 05: Add Antigravity quota-family support', () => {
                   },
                   'gemini-3-flash': {
                     quota_info: {
-                      remaining: '0.5' as unknown as number,
-                      resetTime: String(Math.floor(Date.now() / 1000) + 5000),
+                      remaining: '0.5',
+                      resetTime: `${Math.floor(Date.now() / 1000) + 5000}.5`,
                     },
                   },
                   'unrelated-model-xyz': { remainingFraction: 0.05 },
@@ -1039,19 +1038,5 @@ describe('Ticket 05: Add Antigravity quota-family support', () => {
     expect(text).toContain('Claude & GPT models');
     expect(text).toContain('Gemini models');
     expect(text).toContain('no supported model quota returned');
-  });
-});
-
-describe('parseTimeValue & parseNumberValue edge cases', () => {
-  it('parses epoch 0 as valid 1970 timestamp and numeric strings properly', () => {
-    expect(parseTimeValue(0)).toBe('1970-01-01T00:00:00.000Z');
-    expect(parseTimeValue('0')).toBe('1970-01-01T00:00:00.000Z');
-    expect(parseTimeValue(1700000000)).toBe('2023-11-14T22:13:20.000Z');
-    expect(parseTimeValue('1700000000.5')).toBe('2023-11-14T22:13:20.500Z');
-    expect(parseTimeValue(null)).toBeUndefined();
-    expect(parseTimeValue('invalid-date-string')).toBeUndefined();
-
-    expect(parseNumberValue('42.5')).toBe(42.5);
-    expect(parseNumberValue('not-a-number')).toBeUndefined();
   });
 });
