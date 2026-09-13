@@ -7,8 +7,6 @@ export default defineConfig({
     description: 'CLI Proxy API Quotas',
     permissions: ['storage'],
     optional_host_permissions: [
-      'http://localhost/*',
-      'http://127.0.0.1/*',
       'https://*/*',
     ],
   },
