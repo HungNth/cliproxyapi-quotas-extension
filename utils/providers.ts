@@ -206,7 +206,7 @@ export function parseTimeValue(raw: unknown): string | undefined {
   if (raw === null || raw === undefined) return undefined;
 
   const num = parseNumberValue(raw);
-  if (num !== undefined && num > 0) {
+  if (num !== undefined) {
     const ms = num > 10_000_000_000 ? num : num * 1000;
     const d = new Date(ms);
     return isNaN(d.getTime()) ? undefined : d.toISOString();
