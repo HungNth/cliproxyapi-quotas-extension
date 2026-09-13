@@ -41,5 +41,5 @@ An indication that the connected CLIProxyAPI Instance is older than the latest a
 _Avoid_: Extension update, provider update
 
 **Manual Reset Allowance**:
-The number of manual quota reset actions remaining for a Codex Provider Account before the next cycle.
+The number of manual quota reset actions currently available to a Codex Provider Account.
 _Avoid_: Credits, manual reset tokens, reset budget
