@@ -36,6 +36,14 @@ async function resolveProjectId(
   authIndex: string,
   signal?: AbortSignal
 ): Promise<string | undefined> {
+  const metadata = {
+    ideType: 'ANTIGRAVITY',
+    platform: 'PLATFORM_UNSPECIFIED',
+    pluginType: 'GEMINI',
+  };
+  const metadataJSON = JSON.stringify(metadata);
+  const requestBody = JSON.stringify({ metadata });
+
   try {
     const res = await fetch(`${baseUrl}/v0/management/api-call`, {
       method: 'POST',
@@ -50,14 +58,11 @@ async function resolveProjectId(
         header: {
           Authorization: 'Bearer $TOKEN$',
           'Content-Type': 'application/json',
+          'User-Agent': 'google-api-nodejs-client/9.15.1',
+          'X-Goog-Api-Client': 'google-cloud-sdk vscode_cloudshelleditor/0.1',
+          'Client-Metadata': metadataJSON,
         },
-        data: JSON.stringify({
-          metadata: {
-            ideType: 'ANTIGRAVITY',
-            platform: 'PLATFORM_UNSPECIFIED',
-            pluginType: 'GEMINI',
-          },
-        }),
+        data: requestBody,
       }),
       signal: createRequestSignal(signal),
     });
@@ -75,18 +80,26 @@ async function resolveProjectId(
       if (typeof compObj.id === 'string') return compObj.id;
     }
     if (typeof b.project_id === 'string') return b.project_id;
+    if (typeof b.projectId === 'string') return b.projectId;
   } catch {
-    // ignore
+    // best-effort discovery failure ignored
   }
 
   return undefined;
 }
 
-interface ModelInfo {
-  remainingFraction?: number;
-  resetTime?: string;
-  reset_time?: string;
-  resets_at?: string;
+function mergeFamilyQuota(window: QuotaWindow, remaining: number, resetAt?: string): void {
+  if (window.remainingPercent === null || remaining < window.remainingPercent) {
+    window.remainingPercent = remaining;
+    window.resetAt = resetAt;
+    return;
+  }
+
+  if (remaining === window.remainingPercent && resetAt) {
+    if (!window.resetAt || new Date(resetAt) < new Date(window.resetAt)) {
+      window.resetAt = resetAt;
+    }
+  }
 }
 
 export async function fetchAntigravityQuota(
@@ -101,22 +114,16 @@ export async function fetchAntigravityQuota(
   error?: { status?: number; code?: string; message: string };
 }> {
   let projectId = extractExistingProjectId(raw);
-
   if (!projectId) {
     projectId = await resolveProjectId(baseUrl, managementKey, authIndex, signal);
   }
 
-  if (!projectId) {
-    return {
-      ok: false,
-      windows: [],
-      error: {
-        message: 'Could not resolve Google Cloud project ID',
-      },
-    };
+  const requestData: Record<string, string> = {};
+  if (projectId) {
+    requestData.project = projectId;
   }
 
-  let modelsObj: Record<string, ModelInfo> | null = null;
+  let modelsObj: Record<string, unknown> | null = null;
   let lastStatusCode = 0;
   let lastErrorMessage = 'Failed to fetch available models';
 
@@ -137,7 +144,7 @@ export async function fetchAntigravityQuota(
             'Content-Type': 'application/json',
             'User-Agent': 'antigravity/1.11.5 cpa-quota',
           },
-          data: JSON.stringify({ project: projectId }),
+          data: JSON.stringify(requestData),
         }),
         signal: createRequestSignal(signal),
       });
@@ -154,7 +161,7 @@ export async function fetchAntigravityQuota(
       if (parsed.body && typeof parsed.body === 'object' && 'models' in parsed.body) {
         const rawModels = (parsed.body as { models: unknown }).models;
         if (rawModels && typeof rawModels === 'object' && rawModels !== null) {
-          modelsObj = rawModels as Record<string, ModelInfo>;
+          modelsObj = rawModels as Record<string, unknown>;
           break; // Success!
         }
       }
@@ -167,7 +174,10 @@ export async function fetchAntigravityQuota(
     const sanitized = sanitizeErrorMessage(lastErrorMessage, lastStatusCode || undefined);
     return {
       ok: false,
-      windows: [],
+      windows: [
+        { label: 'Claude & GPT models', remainingPercent: null },
+        { label: 'Gemini models', remainingPercent: null },
+      ],
       error: {
         status: lastStatusCode || undefined,
         message: sanitized,
@@ -175,74 +185,79 @@ export async function fetchAntigravityQuota(
     };
   }
 
-  // Aggregate into Claude & GPT and Gemini families
-  let hasClaudeGpt = false;
-  let claudeGptMin: number | null = null;
-  let claudeGptEarliestReset: string | undefined;
+  // Parse into two standard Antigravity families
+  const families: QuotaWindow[] = [
+    { label: 'Claude & GPT models', remainingPercent: null },
+    { label: 'Gemini models', remainingPercent: null },
+  ];
 
-  let hasGemini = false;
-  let geminiMin: number | null = null;
-  let geminiEarliestReset: string | undefined;
+  for (const [modelId, rawModel] of Object.entries(modelsObj)) {
+    const normalized = modelId.toLowerCase().replace(/_/g, '-');
+    const isClaude46 =
+      normalized.startsWith('claude-') &&
+      (normalized.includes('4-6') || normalized.includes('4.6'));
 
-  for (const [name, info] of Object.entries(modelsObj)) {
-    const lower = name.toLowerCase();
-    const isClaudeGpt = lower.includes('claude') || lower.includes('gpt');
-    const isGemini = lower.includes('gemini');
-
-    if (!isClaudeGpt && !isGemini) continue;
-
-    const reset = info.resetTime ?? info.reset_time ?? info.resets_at;
-    let pct: number | null = null;
-    if (typeof info.remainingFraction === 'number') {
-      const frac = info.remainingFraction <= 1.0 ? info.remainingFraction * 100 : info.remainingFraction;
-      pct = clamp(Math.round(frac), 0, 100);
-    } else if (reset) {
-      pct = 0;
-    }
-    if (isClaudeGpt) {
-      hasClaudeGpt = true;
-      if (pct !== null) {
-        claudeGptMin = claudeGptMin === null ? pct : Math.min(claudeGptMin, pct);
-      }
-      if (reset) {
-        if (!claudeGptEarliestReset || new Date(reset) < new Date(claudeGptEarliestReset)) {
-          claudeGptEarliestReset = reset;
-        }
-      }
+    let familyIdx = -1;
+    if (isClaude46 || normalized.startsWith('gpt-')) {
+      familyIdx = 0;
+    } else if (normalized.startsWith('gemini-3.') || normalized.startsWith('gemini-3-')) {
+      familyIdx = 1;
+    } else {
+      continue;
     }
 
-    if (isGemini) {
-      hasGemini = true;
-      if (pct !== null) {
-        geminiMin = geminiMin === null ? pct : Math.min(geminiMin, pct);
+    const model = (rawModel && typeof rawModel === 'object') ? (rawModel as Record<string, unknown>) : {};
+    const quota = (model.quotaInfo && typeof model.quotaInfo === 'object')
+      ? (model.quotaInfo as Record<string, unknown>)
+      : (model.quota_info && typeof model.quota_info === 'object')
+        ? (model.quota_info as Record<string, unknown>)
+        : model;
+
+    let remainingFraction: number | undefined;
+    if (typeof quota.remainingFraction === 'number') {
+      remainingFraction = quota.remainingFraction;
+    } else if (typeof quota.remaining_fraction === 'number') {
+      remainingFraction = quota.remaining_fraction;
+    } else if (typeof quota.remaining === 'number') {
+      remainingFraction = quota.remaining;
+    }
+
+    const rawReset = quota.resetTime ?? quota.reset_time ?? quota.reset_at ?? quota.resets_at;
+    let resetAt: string | undefined;
+    if (typeof rawReset === 'string' && rawReset.trim().length > 0) {
+      resetAt = rawReset;
+    }
+
+    if (remainingFraction === undefined) {
+      if (!resetAt) {
+        continue;
       }
-      if (reset) {
-        if (!geminiEarliestReset || new Date(reset) < new Date(geminiEarliestReset)) {
-          geminiEarliestReset = reset;
-        }
-      }
+      remainingFraction = 0;
+    }
+
+    let remaining = remainingFraction <= 1.0 ? remainingFraction * 100 : remainingFraction;
+    remaining = clamp(Math.round(remaining), 0, 100);
+
+    const targetWindow = families[familyIdx];
+    if (targetWindow) {
+      mergeFamilyQuota(targetWindow, remaining, resetAt);
     }
   }
 
-  const windows: QuotaWindow[] = [];
-  if (hasClaudeGpt) {
-    windows.push({
-      label: 'Claude & GPT models',
-      remainingPercent: claudeGptMin,
-      resetAt: claudeGptEarliestReset,
-    });
+  const hasAnyQuota = families[0]?.remainingPercent !== null || families[1]?.remainingPercent !== null;
+
+  if (!hasAnyQuota) {
+    return {
+      ok: false,
+      windows: [],
+      error: { message: 'no supported model quota returned' },
+    };
   }
 
-  if (hasGemini) {
-    windows.push({
-      label: 'Gemini models',
-      remainingPercent: geminiMin,
-      resetAt: geminiEarliestReset,
-    });
-  }
+  const activeWindows = families.filter((f) => f.remainingPercent !== null);
 
   return {
     ok: true,
-    windows,
+    windows: activeWindows,
   };
 }

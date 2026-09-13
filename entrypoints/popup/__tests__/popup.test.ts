@@ -859,10 +859,30 @@ describe('Ticket 05: Add Antigravity quota-family support', () => {
               statusCode: 200,
               body: JSON.stringify({
                 models: {
-                  'claude-4-6-sonnet': { remainingFraction: 0.8, resetTime: new Date(Date.now() + 7200 * 1000).toISOString() },
-                  'gpt-4.6-turbo': { remainingFraction: 0.35, resetTime: new Date(Date.now() + 3600 * 1000).toISOString() },
-                  'gemini-3-pro': { remainingFraction: 0.9, resetTime: new Date(Date.now() + 10000 * 1000).toISOString() },
-                  'gemini-3.5-flash': { remainingFraction: 0.5, resetTime: new Date(Date.now() + 5000 * 1000).toISOString() },
+                  'claude-4-6-sonnet': {
+                    quotaInfo: {
+                      remainingFraction: 0.8,
+                      resetTime: new Date(Date.now() + 7200 * 1000).toISOString(),
+                    },
+                  },
+                  'gpt-4.6-turbo': {
+                    quota_info: {
+                      remaining_fraction: 0.35,
+                      reset_time: new Date(Date.now() + 3600 * 1000).toISOString(),
+                    },
+                  },
+                  'gemini-3-pro': {
+                    quotaInfo: {
+                      remainingFraction: 0.9,
+                      resetTime: new Date(Date.now() + 10000 * 1000).toISOString(),
+                    },
+                  },
+                  'gemini-3-flash': {
+                    quota_info: {
+                      remaining: 0.5,
+                      resetTime: new Date(Date.now() + 5000 * 1000).toISOString(),
+                    },
+                  },
                   'unrelated-model-xyz': { remainingFraction: 0.05 },
                 },
               }),
@@ -951,5 +971,70 @@ describe('Ticket 05: Add Antigravity quota-family support', () => {
     expect(text).toContain('project-user@google.com');
     expect(text).toContain('Permission denied on Google Cloud project');
     expect(text).not.toContain('leaked_key_value');
+  });
+
+  it('falls back to empty request data when project discovery yields nothing and flags no supported model quota', async () => {
+    const apiCallsMade: Array<{ url?: string; data?: string }> = [];
+
+    global.fetch = vi.fn().mockImplementation(async (url: string, opts?: RequestInit) => {
+      if (url.includes('/auth-files')) {
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers({ 'X-CPA-VERSION': '7.2.0' }),
+          json: async () => ({
+            files: [
+              { auth_index: 'anti-noproject', provider: 'antigravity', email: 'noproject@google.com' },
+            ],
+          }),
+        };
+      }
+      if (url.includes('/latest-version')) {
+        return { ok: true, json: async () => ({ 'latest-version': 'v7.2.0' }) };
+      }
+      if (url.includes('/api-call')) {
+        const body = typeof opts?.body === 'string' ? JSON.parse(opts.body) : {};
+        apiCallsMade.push(body);
+
+        if (body.url.includes(':loadCodeAssist')) {
+          // loadCodeAssist returns empty/no companion project
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ status_code: 200, body: '{}' }),
+          };
+        }
+
+        if (body.url.includes(':fetchAvailableModels')) {
+          // Models returned has no matching Claude 4.6 or Gemini 3 models
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              status_code: 200,
+              body: JSON.stringify({
+                models: {
+                  'random-model': { quotaInfo: { remainingFraction: 0.5 } },
+                },
+              }),
+            }),
+          };
+        }
+      }
+      return { ok: false, status: 404 };
+    });
+
+    const wrapper = mount(App);
+    await flushPromises();
+    await wrapper.vm.$nextTick();
+
+    // fetchAvailableModels was still called with empty project data "{}"
+    const fetchModelCall = apiCallsMade.find((c) => c.url?.includes(':fetchAvailableModels'));
+    expect(fetchModelCall).toBeDefined();
+    expect(fetchModelCall?.data).toBe('{}');
+
+    const text = wrapper.text();
+    expect(text).toContain('noproject@google.com');
+    expect(text).toContain('no supported model quota returned');
   });
 });
