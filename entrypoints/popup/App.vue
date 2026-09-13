@@ -257,7 +257,7 @@ function getTextColor(percent: number | null): string {
           type="button"
           data-testid="refresh-btn"
           :disabled="refreshing"
-          class="p-1.5 rounded text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          class="p-1.5 rounded text-blue-500 hover:text-blue-800 dark:hover:text-blue-200 hover:bg-blue-100 dark:hover:bg-blue-800 cursor-pointer transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           title="Refresh"
           @click="runRefresh"
         >
