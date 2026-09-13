@@ -2,7 +2,7 @@
     "name": "cliproxyapi-quotas",
     "description": "CLI Proxy API Quotas",
     "private": true,
-    "version": "0.0.1",
+    "version": "0.0.2",
     "type": "module",
     "author": "HungNth",
     "homepage": "https://github.com/cliproxyapi-quotas-extension",
