@@ -187,6 +187,46 @@ export function sortAccounts(accounts: AccountQuota[]): AccountQuota[] {
   });
 }
 
+export function parseNumberValue(raw: unknown): number | undefined {
+  if (typeof raw === 'number' && !isNaN(raw) && isFinite(raw)) {
+    return raw;
+  }
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (!trimmed) return undefined;
+    const num = Number(trimmed);
+    if (!isNaN(num) && isFinite(num)) {
+      return num;
+    }
+  }
+  return undefined;
+}
+
+export function parseTimeValue(raw: unknown): string | undefined {
+  if (raw === null || raw === undefined) return undefined;
+
+  if (typeof raw === 'number' && !isNaN(raw) && isFinite(raw)) {
+    const ms = raw > 10_000_000_000 ? raw : raw * 1000;
+    const d = new Date(ms);
+    return isNaN(d.getTime()) ? undefined : d.toISOString();
+  }
+
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (!trimmed) return undefined;
+    const num = Number(trimmed);
+    if (!isNaN(num) && isFinite(num) && /^\d+$/.test(trimmed)) {
+      const ms = num > 10_000_000_000 ? num : num * 1000;
+      const d = new Date(ms);
+      return isNaN(d.getTime()) ? undefined : d.toISOString();
+    }
+    const d = new Date(trimmed);
+    return isNaN(d.getTime()) ? undefined : d.toISOString();
+  }
+
+  return undefined;
+}
+
 export function formatCountdown(resetAt?: string, now: number = Date.now()): string {
   if (!resetAt) return '';
   const target = new Date(resetAt).getTime();

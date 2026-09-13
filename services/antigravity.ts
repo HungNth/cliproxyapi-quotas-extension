@@ -1,4 +1,5 @@
 import type { QuotaWindow, RawAuthFile } from '@/utils/providers';
+import { parseNumberValue, parseTimeValue } from '@/utils/providers';
 import { sanitizeErrorMessage } from '@/utils/sanitize';
 import { createRequestSignal, parseApiCallEnvelope } from '@/utils/http';
 
@@ -213,30 +214,19 @@ export async function fetchAntigravityQuota(
         ? (model.quota_info as Record<string, unknown>)
         : model;
 
-    let remainingFraction: number | undefined;
-    if (typeof quota.remainingFraction === 'number') {
-      remainingFraction = quota.remainingFraction;
-    } else if (typeof quota.remaining_fraction === 'number') {
-      remainingFraction = quota.remaining_fraction;
-    } else if (typeof quota.remaining === 'number') {
-      remainingFraction = quota.remaining;
-    }
+    const rawRemaining = parseNumberValue(quota.remainingFraction ?? quota.remaining_fraction ?? quota.remaining);
+    const resetAt = parseTimeValue(quota.resetTime ?? quota.reset_time ?? quota.reset_at ?? quota.resets_at);
 
-    const rawReset = quota.resetTime ?? quota.reset_time ?? quota.reset_at ?? quota.resets_at;
-    let resetAt: string | undefined;
-    if (typeof rawReset === 'string' && rawReset.trim().length > 0) {
-      resetAt = rawReset;
-    }
-
-    if (remainingFraction === undefined) {
+    let remaining: number;
+    if (rawRemaining === undefined) {
       if (!resetAt) {
         continue;
       }
-      remainingFraction = 0;
+      remaining = 0;
+    } else {
+      const frac = rawRemaining <= 1.0 ? rawRemaining * 100 : rawRemaining;
+      remaining = clamp(Math.round(frac), 0, 100);
     }
-
-    let remaining = remainingFraction <= 1.0 ? remainingFraction * 100 : remainingFraction;
-    remaining = clamp(Math.round(remaining), 0, 100);
 
     const targetWindow = families[familyIdx];
     if (targetWindow) {
