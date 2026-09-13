@@ -867,8 +867,8 @@ describe('Ticket 05: Add Antigravity quota-family support', () => {
                   },
                   'gpt-4.6-turbo': {
                     quota_info: {
-                      remaining_fraction: 0.35,
-                      reset_time: new Date(Date.now() + 3600 * 1000).toISOString(),
+                      remaining_fraction: '0.35' as unknown as number,
+                      reset_time: (Math.floor(Date.now() / 1000) + 3600) as unknown as string,
                     },
                   },
                   'gemini-3-pro': {
@@ -879,8 +879,8 @@ describe('Ticket 05: Add Antigravity quota-family support', () => {
                   },
                   'gemini-3-flash': {
                     quota_info: {
-                      remaining: 0.5,
-                      resetTime: new Date(Date.now() + 5000 * 1000).toISOString(),
+                      remaining: '0.5' as unknown as number,
+                      resetTime: String(Math.floor(Date.now() / 1000) + 5000),
                     },
                   },
                   'unrelated-model-xyz': { remainingFraction: 0.05 },

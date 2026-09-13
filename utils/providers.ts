@@ -205,8 +205,9 @@ export function parseNumberValue(raw: unknown): number | undefined {
 export function parseTimeValue(raw: unknown): string | undefined {
   if (raw === null || raw === undefined) return undefined;
 
-  if (typeof raw === 'number' && !isNaN(raw) && isFinite(raw)) {
-    const ms = raw > 10_000_000_000 ? raw : raw * 1000;
+  const num = parseNumberValue(raw);
+  if (num !== undefined && num > 0) {
+    const ms = num > 10_000_000_000 ? num : num * 1000;
     const d = new Date(ms);
     return isNaN(d.getTime()) ? undefined : d.toISOString();
   }
@@ -214,12 +215,6 @@ export function parseTimeValue(raw: unknown): string | undefined {
   if (typeof raw === 'string') {
     const trimmed = raw.trim();
     if (!trimmed) return undefined;
-    const num = Number(trimmed);
-    if (!isNaN(num) && isFinite(num) && /^\d+$/.test(trimmed)) {
-      const ms = num > 10_000_000_000 ? num : num * 1000;
-      const d = new Date(ms);
-      return isNaN(d.getTime()) ? undefined : d.toISOString();
-    }
     const d = new Date(trimmed);
     return isNaN(d.getTime()) ? undefined : d.toISOString();
   }
