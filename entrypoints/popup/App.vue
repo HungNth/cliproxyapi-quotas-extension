@@ -13,6 +13,7 @@ import {
   formatCountdown,
   formatLocalResetTime,
   compareVersions,
+  getQuotaHealthColors,
 } from '@/utils/providers';
 
 const baseUrl = ref('http://127.0.0.1:8317');
@@ -214,17 +215,11 @@ async function handleClear(): Promise<void> {
 }
 
 function getProgressColor(percent: number | null): string {
-  if (percent === null) return 'bg-zinc-400';
-  if (percent > 50) return 'bg-emerald-500';
-  if (percent > 20) return 'bg-amber-500';
-  return 'bg-rose-500';
+  return getQuotaHealthColors(percent).barClass;
 }
 
 function getTextColor(percent: number | null): string {
-  if (percent === null) return 'text-zinc-500';
-  if (percent > 50) return 'text-emerald-600 dark:text-emerald-400';
-  if (percent > 20) return 'text-amber-600 dark:text-amber-400';
-  return 'text-rose-600 dark:text-rose-400';
+  return getQuotaHealthColors(percent).textClass;
 }
 </script>
 

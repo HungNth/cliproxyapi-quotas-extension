@@ -254,3 +254,39 @@ export function formatLocalResetTime(resetAt?: string): string {
     return '';
   }
 }
+
+export interface QuotaHealthColors {
+  barClass: string;
+  textClass: string;
+}
+
+export function getQuotaHealthColors(percent: number | null): QuotaHealthColors {
+  if (percent === null) {
+    return {
+      barClass: 'bg-zinc-400',
+      textClass: 'text-zinc-500',
+    };
+  }
+  if (percent >= 70) {
+    return {
+      barClass: 'bg-emerald-500',
+      textClass: 'text-emerald-600 dark:text-emerald-400',
+    };
+  }
+  if (percent >= 50) {
+    return {
+      barClass: 'bg-yellow-500',
+      textClass: 'text-yellow-600 dark:text-yellow-400',
+    };
+  }
+  if (percent >= 30) {
+    return {
+      barClass: 'bg-orange-500',
+      textClass: 'text-orange-600 dark:text-orange-400',
+    };
+  }
+  return {
+    barClass: 'bg-rose-500',
+    textClass: 'text-rose-600 dark:text-rose-400',
+  };
+}

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import App from '../App.vue';
+import { getQuotaHealthColors } from '@/utils/providers';
 
 describe('Ticket 01: Configure one CLIProxyAPI Instance', () => {
   beforeEach(() => {
@@ -1171,5 +1172,160 @@ describe('Ticket 05: Add Antigravity quota-family support', () => {
     const text = wrapper.text();
     expect(text).toContain('empty@google.com');
     expect(text).toContain('no supported model quota returned');
+  });
+});
+
+describe('Quota Health Color Thresholds', () => {
+  beforeEach(async () => {
+    fakeBrowser.reset();
+    vi.restoreAllMocks();
+    await fakeBrowser.storage.local.set({
+      cpa_base_url: 'http://127.0.0.1:8317',
+      cpa_management_key: 'test-key',
+    });
+  });
+
+  it('renders emerald (>=70%), yellow (50-69%), orange (30-49%), rose (<30%), and zinc (null) classes in DOM', async () => {
+    global.fetch = vi.fn().mockImplementation(async (url: string, opts?: RequestInit) => {
+      if (url.includes('/auth-files')) {
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers({ 'X-CPA-VERSION': '7.2.0' }),
+          json: async () => ({
+            files: [
+              { auth_index: 'user-tiers', provider: 'codex', email: 'tiers@test.com' },
+              { auth_index: 'user-low', provider: 'codex', email: 'low@test.com' },
+              { auth_index: 'user-null', provider: 'codex', email: 'null@test.com' },
+            ],
+          }),
+        };
+      }
+      if (url.includes('/latest-version')) {
+        return { ok: true, json: async () => ({ 'latest-version': 'v7.2.0' }) };
+      }
+      if (url.includes('/api-call')) {
+        const body = typeof opts?.body === 'string' ? JSON.parse(opts.body) : {};
+        if (body.auth_index === 'user-tiers') {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              status_code: 200,
+              body: {
+                rate_limit: {
+                  primary_window: { used_percent: 25 }, // 75% remaining -> emerald (>=70%)
+                  secondary_window: { used_percent: 40 }, // 60% remaining -> yellow (50-69%)
+                },
+              },
+            }),
+          };
+        }
+        if (body.auth_index === 'user-low') {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              status_code: 200,
+              body: {
+                rate_limit: {
+                  primary_window: { used_percent: 60 }, // 40% remaining -> orange (30-49%)
+                  secondary_window: { used_percent: 85 }, // 15% remaining -> rose (<30%)
+                },
+              },
+            }),
+          };
+        }
+        if (body.auth_index === 'user-null') {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              status_code: 200,
+              body: {
+                rate_limit: {
+                  primary_window: { reset_after_seconds: 3600 }, // null percent remaining -> zinc
+                },
+              },
+            }),
+          };
+        }
+      }
+      return { ok: false, status: 404 };
+    });
+
+    const wrapper = mount(App);
+    await flushPromises();
+    await wrapper.vm.$nextTick();
+
+    const html = wrapper.html();
+
+    // 75% remaining -> emerald (light & dark)
+    expect(html).toContain('bg-emerald-500');
+    expect(html).toContain('text-emerald-600 dark:text-emerald-400');
+
+    // 60% remaining -> yellow (light & dark)
+    expect(html).toContain('bg-yellow-500');
+    expect(html).toContain('text-yellow-600 dark:text-yellow-400');
+
+    // 40% remaining -> orange (light & dark)
+    expect(html).toContain('bg-orange-500');
+    expect(html).toContain('text-orange-600 dark:text-orange-400');
+
+    // 15% remaining -> rose (light & dark)
+    expect(html).toContain('bg-rose-500');
+    expect(html).toContain('text-rose-600 dark:text-rose-400');
+
+    // null remaining -> zinc gray
+    expect(html).toContain('bg-zinc-400');
+    expect(html).toContain('text-zinc-500');
+  });
+
+  it('correctly maps boundary conditions for getQuotaHealthColors', () => {
+    // Healthy (>= 70%)
+    expect(getQuotaHealthColors(100)).toEqual({
+      barClass: 'bg-emerald-500',
+      textClass: 'text-emerald-600 dark:text-emerald-400',
+    });
+    expect(getQuotaHealthColors(70)).toEqual({
+      barClass: 'bg-emerald-500',
+      textClass: 'text-emerald-600 dark:text-emerald-400',
+    });
+
+    // Moderate (50% - 69%)
+    expect(getQuotaHealthColors(69)).toEqual({
+      barClass: 'bg-yellow-500',
+      textClass: 'text-yellow-600 dark:text-yellow-400',
+    });
+    expect(getQuotaHealthColors(50)).toEqual({
+      barClass: 'bg-yellow-500',
+      textClass: 'text-yellow-600 dark:text-yellow-400',
+    });
+
+    // Low (30% - 49%)
+    expect(getQuotaHealthColors(49)).toEqual({
+      barClass: 'bg-orange-500',
+      textClass: 'text-orange-600 dark:text-orange-400',
+    });
+    expect(getQuotaHealthColors(30)).toEqual({
+      barClass: 'bg-orange-500',
+      textClass: 'text-orange-600 dark:text-orange-400',
+    });
+
+    // Critical (< 30%)
+    expect(getQuotaHealthColors(29)).toEqual({
+      barClass: 'bg-rose-500',
+      textClass: 'text-rose-600 dark:text-rose-400',
+    });
+    expect(getQuotaHealthColors(0)).toEqual({
+      barClass: 'bg-rose-500',
+      textClass: 'text-rose-600 dark:text-rose-400',
+    });
+
+    // Unavailable / Null
+    expect(getQuotaHealthColors(null)).toEqual({
+      barClass: 'bg-zinc-400',
+      textClass: 'text-zinc-500',
+    });
   });
 });
