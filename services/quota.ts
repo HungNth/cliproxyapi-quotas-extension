@@ -167,7 +167,7 @@ export async function discoverProviderAccounts(
               acc.error = res.error;
             }
           } else if (acc.provider === 'antigravity') {
-            const res = await fetchAntigravityQuota(baseUrl, managementKey, acc.authIndex, acc.raw, signal);
+            const res = await fetchAntigravityQuota(baseUrl, managementKey, acc.authIndex, signal);
             acc.windows = res.windows;
             if (!res.ok && res.error) {
               acc.error = res.error;

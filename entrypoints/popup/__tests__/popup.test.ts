@@ -802,8 +802,8 @@ describe('Ticket 05: Add Antigravity quota-family support', () => {
     });
   });
 
-  it('resolves project id if missing, falls back to secondary endpoint, and aggregates into Claude & GPT and Gemini families', async () => {
-    const apiCallsMade: Array<{ url?: string; data?: string; auth_index?: string }> = [];
+  it('queries retrieveUserQuotaSummary with project aicode-consumers, custom user-agent, and renders four Quota Windows', async () => {
+    const apiCallsMade: Array<{ url?: string; data?: string; auth_index?: string; header?: Record<string, string> }> = [];
 
     global.fetch = vi.fn().mockImplementation(async (url: string, opts?: RequestInit) => {
       if (url.includes('/auth-files')) {
@@ -825,66 +825,53 @@ describe('Ticket 05: Add Antigravity quota-family support', () => {
         const body = typeof opts?.body === 'string' ? JSON.parse(opts.body) : {};
         apiCallsMade.push(body);
 
-        if (body.url.includes(':loadCodeAssist')) {
+        if (body.url.includes(':retrieveUserQuotaSummary')) {
           return {
             ok: true,
             status: 200,
             json: async () => ({
               status_code: 200,
               body: JSON.stringify({
-                cloudaicompanionProject: { id: 'discovered-project-123' },
-              }),
-            }),
-          };
-        }
-
-        // Primary fetchAvailableModels fails (500), forcing fallback to secondary
-        if (body.url === 'https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels') {
-          return {
-            ok: true,
-            status: 200,
-            json: async () => ({
-              status_code: 500,
-              body: 'Internal Server Error',
-            }),
-          };
-        }
-
-        // Secondary daily-cloudcode-pa succeeds!
-        if (body.url === 'https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels') {
-          return {
-            ok: true,
-            status: 200,
-            json: async () => ({
-              statusCode: 200,
-              body: JSON.stringify({
-                models: {
-                  'claude-4-6-sonnet': {
-                    quotaInfo: {
-                      remainingFraction: 0.8,
-                      resetTime: new Date(Date.now() + 7200 * 1000).toISOString(),
-                    },
+                groups: [
+                  {
+                    buckets: [
+                      {
+                        bucketId: 'gemini-weekly',
+                        displayName: 'Weekly Limit Remaining',
+                        window: 'weekly',
+                        resetTime: new Date(Date.now() + 86400 * 6 * 1000).toISOString(),
+                        remainingFraction: 0.8856122,
+                      },
+                      {
+                        bucketId: 'gemini-5h',
+                        displayName: 'Five Hour Limit Remaining',
+                        window: '5h',
+                        resetTime: new Date(Date.now() + 3600 * 3 * 1000).toISOString(),
+                        remainingFraction: 0.92559963,
+                      },
+                    ],
+                    displayName: 'Gemini Models',
                   },
-                  'gpt-4.6-turbo': {
-                    quota_info: {
-                      remaining_fraction: '0.35',
-                      reset_time: 0,
-                    },
+                  {
+                    buckets: [
+                      {
+                        bucketId: '3p-weekly',
+                        displayName: 'Weekly Limit Remaining',
+                        window: 'weekly',
+                        resetTime: new Date(Date.now() + 86400 * 5 * 1000).toISOString(),
+                        remainingFraction: 0.2524704,
+                      },
+                      {
+                        bucketId: '3p-5h',
+                        displayName: 'Five Hour Limit Remaining',
+                        window: '5h',
+                        resetTime: new Date(Date.now() + 7200 * 1000).toISOString(),
+                        remainingFraction: 0,
+                      },
+                    ],
+                    displayName: 'Claude and GPT models',
                   },
-                  'gemini-3-pro': {
-                    quotaInfo: {
-                      remainingFraction: 0.9,
-                      resetTime: new Date(Date.now() + 10000 * 1000).toISOString(),
-                    },
-                  },
-                  'gemini-3-flash': {
-                    quota_info: {
-                      remaining: '0.5',
-                      resetTime: `${Math.floor(Date.now() / 1000) + 5000}.5`,
-                    },
-                  },
-                  'unrelated-model-xyz': { remainingFraction: 0.05 },
-                },
+                ],
               }),
             }),
           };
@@ -897,30 +884,88 @@ describe('Ticket 05: Add Antigravity quota-family support', () => {
     await flushPromises();
     await wrapper.vm.$nextTick();
 
-    // Verify project discovery call was made with $TOKEN$
-    expect(apiCallsMade.some((c) => c.url?.includes(':loadCodeAssist'))).toBe(true);
-
-    // Verify fallback endpoint was called with discovered project ID
-    const fallbackCall = apiCallsMade.find((c) => c.url?.includes('daily-cloudcode-pa'));
-    expect(fallbackCall).toBeDefined();
-    expect(fallbackCall?.data).toContain('discovered-project-123');
+    // Verify api-call request
+    expect(apiCallsMade.length).toBe(1);
+    const call = apiCallsMade[0];
+    expect(call?.url).toBe('https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary');
+    expect(call?.data).toBe(JSON.stringify({ project: 'aicode-consumers' }));
+    expect(call?.header?.['User-Agent']).toBe('antigravity/cli/1.0.13 (aidev_client; os_type=darwin; arch=arm64)');
+    expect(call?.header?.Authorization).toBe('Bearer $TOKEN$');
 
     const text = wrapper.text();
     expect(text).toContain('anti@google.com');
 
-    // "Claude & GPT models": lowest of 0.8 and 0.35 -> 35%
-    expect(text).toContain('Claude & GPT models');
-    expect(text).toContain('35%');
+    // 4 windows present with correct percentages
+    expect(text).toContain('Gemini (5-hour)');
+    expect(text).toContain('93%');
 
-    // "Gemini models": lowest of 0.9 and 0.5 -> 50%
-    expect(text).toContain('Gemini models');
-    expect(text).toContain('50%');
+    expect(text).toContain('Gemini (Weekly)');
+    expect(text).toContain('89%');
 
-    // Unrelated model was ignored
-    expect(text).not.toContain('unrelated-model');
+    expect(text).toContain('Claude & GPT (5-hour)');
+    expect(text).toContain('0%');
+
+    expect(text).toContain('Claude & GPT (Weekly)');
+    expect(text).toContain('25%');
+
+    // Verify ordering in DOM: Gemini 5h before Gemini Weekly before Claude & GPT 5h before Claude & GPT Weekly
+    const g5hIdx = text.indexOf('Gemini (5-hour)');
+    const gWeeklyIdx = text.indexOf('Gemini (Weekly)');
+    const c5hIdx = text.indexOf('Claude & GPT (5-hour)');
+    const cWeeklyIdx = text.indexOf('Claude & GPT (Weekly)');
+
+    expect(g5hIdx).toBeLessThan(gWeeklyIdx);
+    expect(gWeeklyIdx).toBeLessThan(c5hIdx);
+    expect(c5hIdx).toBeLessThan(cWeeklyIdx);
+
+    // Verify countdowns rendered
+    expect(text).toContain('in 3h');
+    expect(text).toContain('in 2h');
   });
 
-  it('reuses existing project_id without loadCodeAssist call and handles account error', async () => {
+  it('skips disabled and unavailable Antigravity accounts from upstream query and renders badges', async () => {
+    const apiCallsMade: Array<{ url?: string; auth_index?: string }> = [];
+
+    global.fetch = vi.fn().mockImplementation(async (url: string, opts?: RequestInit) => {
+      if (url.includes('/auth-files')) {
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers({ 'X-CPA-VERSION': '7.2.0' }),
+          json: async () => ({
+            files: [
+              { auth_index: 'anti-disabled', provider: 'antigravity', email: 'dis@google.com', disabled: true },
+              { auth_index: 'anti-unavail', provider: 'antigravity', email: 'unavail@google.com', unavailable: true },
+            ],
+          }),
+        };
+      }
+      if (url.includes('/latest-version')) {
+        return { ok: true, json: async () => ({ 'latest-version': 'v7.2.0' }) };
+      }
+      if (url.includes('/api-call')) {
+        const body = typeof opts?.body === 'string' ? JSON.parse(opts.body) : {};
+        apiCallsMade.push(body);
+        return { ok: true, status: 200, json: async () => ({ status_code: 200, body: '{}' }) };
+      }
+      return { ok: false, status: 404 };
+    });
+
+    const wrapper = mount(App);
+    await flushPromises();
+    await wrapper.vm.$nextTick();
+
+    // No api-calls should be made for disabled or unavailable accounts
+    expect(apiCallsMade.length).toBe(0);
+
+    const text = wrapper.text();
+    expect(text).toContain('dis@google.com');
+    expect(text).toContain('[disabled]');
+    expect(text).toContain('unavail@google.com');
+    expect(text).toContain('[unavailable]');
+  });
+
+  it('handles account-level upstream error without leaking tokens and preserves Partial Quota Snapshot', async () => {
     const apiCallsMade: Array<{ url?: string }> = [];
 
     global.fetch = vi.fn().mockImplementation(async (url: string, opts?: RequestInit) => {
@@ -932,10 +977,14 @@ describe('Ticket 05: Add Antigravity quota-family support', () => {
           json: async () => ({
             files: [
               {
-                auth_index: 'anti-with-project',
+                auth_index: 'anti-fail',
                 provider: 'antigravity',
-                email: 'project-user@google.com',
-                project_id: 'pre-existing-project-999',
+                email: 'failing-user@google.com',
+              },
+              {
+                auth_index: 'codex-good',
+                provider: 'codex',
+                email: 'good-codex@openai.com',
               },
             ],
           }),
@@ -948,14 +997,27 @@ describe('Ticket 05: Add Antigravity quota-family support', () => {
         const body = typeof opts?.body === 'string' ? JSON.parse(opts.body) : {};
         apiCallsMade.push(body);
 
-        return {
-          ok: true,
-          status: 200,
-          json: async () => ({
-            status_code: 403,
-            body: JSON.stringify({ error: { message: 'Permission denied on Google Cloud project', key: 'leaked_key_value' } }),
-          }),
-        };
+        if (body.auth_index === 'anti-fail') {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              status_code: 403,
+              body: JSON.stringify({ error: { message: 'Permission denied on Google Cloud project', key: 'leaked_key_value' } }),
+            }),
+          };
+        }
+
+        if (body.auth_index === 'codex-good') {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              status_code: 200,
+              body: { rate_limit: { primary_window: { used_percent: 10 } } },
+            }),
+          };
+        }
       }
       return { ok: false, status: 404 };
     });
@@ -964,18 +1026,18 @@ describe('Ticket 05: Add Antigravity quota-family support', () => {
     await flushPromises();
     await wrapper.vm.$nextTick();
 
-    // loadCodeAssist was NOT called because project_id already existed!
-    expect(apiCallsMade.some((c) => c.url?.includes(':loadCodeAssist'))).toBe(false);
-
     const text = wrapper.text();
-    expect(text).toContain('project-user@google.com');
+    // Successful Codex account is visible (Partial Quota Snapshot)
+    expect(text).toContain('good-codex@openai.com');
+    expect(text).toContain('90%');
+
+    // Failing Antigravity account shows sanitized error and leaks no token
+    expect(text).toContain('failing-user@google.com');
     expect(text).toContain('Permission denied on Google Cloud project');
     expect(text).not.toContain('leaked_key_value');
   });
 
-  it('falls back to empty request data when project discovery yields nothing and flags no supported model quota', async () => {
-    const apiCallsMade: Array<{ url?: string; data?: string }> = [];
-
+  it('normalizes omitted fraction with reset time to 0% (ADR 0003) and sorts accounts by lowest remaining window', async () => {
     global.fetch = vi.fn().mockImplementation(async (url: string, opts?: RequestInit) => {
       if (url.includes('/auth-files')) {
         return {
@@ -984,7 +1046,8 @@ describe('Ticket 05: Add Antigravity quota-family support', () => {
           headers: new Headers({ 'X-CPA-VERSION': '7.2.0' }),
           json: async () => ({
             files: [
-              { auth_index: 'anti-noproject', provider: 'antigravity', email: 'noproject@google.com' },
+              { auth_index: 'anti-high', provider: 'antigravity', email: 'high@google.com' },
+              { auth_index: 'anti-low', provider: 'antigravity', email: 'low@google.com' },
             ],
           }),
         };
@@ -994,28 +1057,58 @@ describe('Ticket 05: Add Antigravity quota-family support', () => {
       }
       if (url.includes('/api-call')) {
         const body = typeof opts?.body === 'string' ? JSON.parse(opts.body) : {};
-        apiCallsMade.push(body);
-
-        if (body.url.includes(':loadCodeAssist')) {
-          // loadCodeAssist returns empty/no companion project
-          return {
-            ok: true,
-            status: 200,
-            json: async () => ({ status_code: 200, body: '{}' }),
-          };
-        }
-
-        if (body.url.includes(':fetchAvailableModels')) {
-          // Models returned has no matching Claude 4.6 or Gemini 3 models
+        if (body.auth_index === 'anti-high') {
           return {
             ok: true,
             status: 200,
             json: async () => ({
               status_code: 200,
               body: JSON.stringify({
-                models: {
-                  'random-model': { quotaInfo: { remainingFraction: 0.5 } },
-                },
+                groups: [
+                  {
+                    displayName: 'Gemini Models',
+                    buckets: [
+                      { window: '5h', remainingFraction: 0.8, resetTime: new Date(Date.now() + 3600000).toISOString() },
+                      { window: 'weekly', remainingFraction: 0.9, resetTime: new Date(Date.now() + 86400000).toISOString() },
+                    ],
+                  },
+                  {
+                    displayName: 'Claude and GPT models',
+                    buckets: [
+                      { window: '5h', remainingFraction: 0.7, resetTime: new Date(Date.now() + 3600000).toISOString() },
+                      { window: 'weekly', remainingFraction: 0.6, resetTime: new Date(Date.now() + 86400000).toISOString() },
+                    ],
+                  },
+                ],
+              }),
+            }),
+          };
+        }
+
+        if (body.auth_index === 'anti-low') {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              status_code: 200,
+              body: JSON.stringify({
+                groups: [
+                  {
+                    displayName: 'Gemini Models',
+                    buckets: [
+                      // Omitted remainingFraction with resetTime -> 0% (exhausted per ADR 0003)
+                      { window: '5h', resetTime: new Date(Date.now() + 7200000).toISOString() },
+                      { window: 'weekly', remainingFraction: 0.5, resetTime: new Date(Date.now() + 86400000).toISOString() },
+                    ],
+                  },
+                  {
+                    displayName: 'Claude and GPT models',
+                    buckets: [
+                      { window: '5h', remainingFraction: 0.4, resetTime: new Date(Date.now() + 3600000).toISOString() },
+                      { window: 'weekly', remainingFraction: 0.3, resetTime: new Date(Date.now() + 86400000).toISOString() },
+                    ],
+                  },
+                ],
               }),
             }),
           };
@@ -1028,15 +1121,55 @@ describe('Ticket 05: Add Antigravity quota-family support', () => {
     await flushPromises();
     await wrapper.vm.$nextTick();
 
-    // fetchAvailableModels was still called with empty project data "{}"
-    const fetchModelCall = apiCallsMade.find((c) => c.url?.includes(':fetchAvailableModels'));
-    expect(fetchModelCall).toBeDefined();
-    expect(fetchModelCall?.data).toBe('{}');
+    const text = wrapper.text();
+    expect(text).toContain('high@google.com');
+    expect(text).toContain('low@google.com');
+
+    // low@google.com has 0% (exhausted window), so it sorts before high@google.com (lowest is 60%)
+    const lowIdx = text.indexOf('low@google.com');
+    const highIdx = text.indexOf('high@google.com');
+    expect(lowIdx).toBeLessThan(highIdx);
+
+    // Verify 0% rendered for exhausted window
+    expect(text).toContain('0%');
+  });
+
+  it('flags no supported model quota returned when groups list is empty', async () => {
+    global.fetch = vi.fn().mockImplementation(async (url: string, opts?: RequestInit) => {
+      if (url.includes('/auth-files')) {
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers({ 'X-CPA-VERSION': '7.2.0' }),
+          json: async () => ({
+            files: [
+              { auth_index: 'anti-empty', provider: 'antigravity', email: 'empty@google.com' },
+            ],
+          }),
+        };
+      }
+      if (url.includes('/latest-version')) {
+        return { ok: true, json: async () => ({ 'latest-version': 'v7.2.0' }) };
+      }
+      if (url.includes('/api-call')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            status_code: 200,
+            body: JSON.stringify({ groups: [] }),
+          }),
+        };
+      }
+      return { ok: false, status: 404 };
+    });
+
+    const wrapper = mount(App);
+    await flushPromises();
+    await wrapper.vm.$nextTick();
 
     const text = wrapper.text();
-    expect(text).toContain('noproject@google.com');
-    expect(text).toContain('Claude & GPT models');
-    expect(text).toContain('Gemini models');
+    expect(text).toContain('empty@google.com');
     expect(text).toContain('no supported model quota returned');
   });
 });

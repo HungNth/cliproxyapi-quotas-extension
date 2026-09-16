@@ -1,49 +1,34 @@
-import type { QuotaWindow, RawAuthFile } from '@/utils/providers';
+import type { QuotaWindow } from '@/utils/providers';
 import { parseNumberValue, parseTimeValue } from '@/utils/providers';
-import { sanitizeErrorMessage } from '@/utils/sanitize';
 import { createRequestSignal, parseApiCallEnvelope } from '@/utils/http';
 
-const ANTIGRAVITY_ENDPOINTS = [
-  'https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels',
-  'https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels',
-  'https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:fetchAvailableModels',
-];
+const ANTIGRAVITY_QUOTA_ENDPOINT =
+  'https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary';
+
+const ANTIGRAVITY_PROJECT_PAYLOAD = JSON.stringify({ project: 'aicode-consumers' });
+
+type WindowKey = 'gemini-5h' | 'gemini-weekly' | 'claude-gpt-5h' | 'claude-gpt-weekly';
 
 function clamp(val: number, min: number, max: number): number {
   return Math.min(Math.max(val, min), max);
 }
 
-function extractExistingProjectId(raw: RawAuthFile): string | undefined {
-  if (raw.project_id && typeof raw.project_id === 'string') return raw.project_id;
-
-  if (raw.metadata && typeof raw.metadata === 'object') {
-    const meta = raw.metadata as Record<string, unknown>;
-    if (typeof meta.project_id === 'string') return meta.project_id;
-    if (typeof meta.projectId === 'string') return meta.projectId;
-  }
-
-  if (raw.attributes && typeof raw.attributes === 'object') {
-    const attr = raw.attributes as Record<string, unknown>;
-    if (typeof attr.project_id === 'string') return attr.project_id;
-    if (typeof attr.projectId === 'string') return attr.projectId;
-  }
-
-  return undefined;
-}
-
-async function resolveProjectId(
+export async function fetchAntigravityQuota(
   baseUrl: string,
   managementKey: string,
   authIndex: string,
   signal?: AbortSignal
-): Promise<string | undefined> {
-  const metadata = {
-    ideType: 'ANTIGRAVITY',
-    platform: 'PLATFORM_UNSPECIFIED',
-    pluginType: 'GEMINI',
+): Promise<{
+  ok: boolean;
+  windows: QuotaWindow[];
+  error?: { status?: number; code?: string; message: string };
+}> {
+  const windowMap: Record<WindowKey, QuotaWindow> = {
+    'gemini-5h': { label: 'Gemini (5-hour)', remainingPercent: null },
+    'gemini-weekly': { label: 'Gemini (Weekly)', remainingPercent: null },
+    'claude-gpt-5h': { label: 'Claude & GPT (5-hour)', remainingPercent: null },
+    'claude-gpt-weekly': { label: 'Claude & GPT (Weekly)', remainingPercent: null },
   };
-  const metadataJSON = JSON.stringify(metadata);
-  const requestBody = JSON.stringify({ metadata });
 
   try {
     const res = await fetch(`${baseUrl}/v0/management/api-call`, {
@@ -55,190 +40,106 @@ async function resolveProjectId(
       body: JSON.stringify({
         auth_index: authIndex,
         method: 'POST',
-        url: 'https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist',
+        url: ANTIGRAVITY_QUOTA_ENDPOINT,
         header: {
           Authorization: 'Bearer $TOKEN$',
           'Content-Type': 'application/json',
-          'User-Agent': 'google-api-nodejs-client/9.15.1',
-          'X-Goog-Api-Client': 'google-cloud-sdk vscode_cloudshelleditor/0.1',
-          'Client-Metadata': metadataJSON,
+          'User-Agent': 'antigravity/cli/1.0.13 (aidev_client; os_type=darwin; arch=arm64)',
         },
-        data: requestBody,
+        data: ANTIGRAVITY_PROJECT_PAYLOAD,
       }),
       signal: createRequestSignal(signal),
     });
 
     const parsed = await parseApiCallEnvelope(res);
-    if (!parsed.ok || !parsed.body || typeof parsed.body !== 'object') {
-      return undefined;
+    if (!parsed.ok) {
+      return {
+        ok: false,
+        windows: [],
+        error: parsed.error,
+      };
     }
 
-    const b = parsed.body as Record<string, unknown>;
-    const companion = b.cloudaicompanionProject;
-    if (typeof companion === 'string') return companion;
-    if (companion && typeof companion === 'object') {
-      const compObj = companion as Record<string, unknown>;
-      if (typeof compObj.id === 'string') return compObj.id;
+    if (parsed.body && typeof parsed.body === 'object' && 'groups' in parsed.body) {
+      const rawGroups = (parsed.body as { groups: unknown }).groups;
+      if (Array.isArray(rawGroups)) {
+        for (const group of rawGroups) {
+          if (!group || typeof group !== 'object') continue;
+          const groupObj = group as Record<string, unknown>;
+          const groupName = String(groupObj.displayName ?? '').toLowerCase();
+
+          let groupFamily: 'gemini' | 'claude-gpt' | null = null;
+          if (groupName.includes('gemini')) {
+            groupFamily = 'gemini';
+          } else if (groupName.includes('claude') || groupName.includes('gpt')) {
+            groupFamily = 'claude-gpt';
+          }
+
+          if (!groupFamily) continue;
+
+          const buckets = groupObj.buckets;
+          if (!Array.isArray(buckets)) continue;
+
+          for (const bucket of buckets) {
+            if (!bucket || typeof bucket !== 'object') continue;
+            const bucketObj = bucket as Record<string, unknown>;
+            const windowType = String(bucketObj.window ?? '').toLowerCase();
+
+            let targetKey: WindowKey | null = null;
+            if (groupFamily === 'gemini') {
+              if (windowType === '5h') targetKey = 'gemini-5h';
+              else if (windowType === 'weekly') targetKey = 'gemini-weekly';
+            } else if (groupFamily === 'claude-gpt') {
+              if (windowType === '5h') targetKey = 'claude-gpt-5h';
+              else if (windowType === 'weekly') targetKey = 'claude-gpt-weekly';
+            }
+
+            if (!targetKey) continue;
+            const target = windowMap[targetKey];
+            if (!target) continue;
+
+            const rawRemaining = parseNumberValue(bucketObj.remainingFraction);
+            const resetAt = parseTimeValue(bucketObj.resetTime);
+
+            let remaining: number | null = null;
+            if (rawRemaining === undefined) {
+              if (resetAt) {
+                // ADR 0003: Treat omitted fraction with reset time as exhausted quota
+                remaining = 0;
+              }
+            } else {
+              const frac = rawRemaining <= 1.0 ? rawRemaining * 100 : rawRemaining;
+              remaining = clamp(Math.round(frac), 0, 100);
+            }
+
+            if (remaining !== null) {
+              target.remainingPercent = remaining;
+              target.resetAt = resetAt;
+            }
+          }
+        }
+      }
     }
-    if (typeof b.project_id === 'string') return b.project_id;
-    if (typeof b.projectId === 'string') return b.projectId;
   } catch {
-    // best-effort discovery failure ignored
-  }
-
-  return undefined;
-}
-
-function mergeFamilyQuota(window: QuotaWindow, remaining: number, resetAt?: string): void {
-  if (window.remainingPercent === null || remaining < window.remainingPercent) {
-    window.remainingPercent = remaining;
-    window.resetAt = resetAt;
-    return;
-  }
-
-  if (remaining === window.remainingPercent && resetAt) {
-    if (!window.resetAt || new Date(resetAt) < new Date(window.resetAt)) {
-      window.resetAt = resetAt;
-    }
-  }
-}
-
-export async function fetchAntigravityQuota(
-  baseUrl: string,
-  managementKey: string,
-  authIndex: string,
-  raw: RawAuthFile,
-  signal?: AbortSignal
-): Promise<{
-  ok: boolean;
-  windows: QuotaWindow[];
-  error?: { status?: number; code?: string; message: string };
-}> {
-  let projectId = extractExistingProjectId(raw);
-  if (!projectId) {
-    projectId = await resolveProjectId(baseUrl, managementKey, authIndex, signal);
-  }
-
-  const requestData: Record<string, string> = {};
-  if (projectId) {
-    requestData.project = projectId;
-  }
-
-  let modelsObj: Record<string, unknown> | null = null;
-  let lastStatusCode = 0;
-  let lastErrorMessage = 'Failed to fetch available models';
-
-  for (const endpoint of ANTIGRAVITY_ENDPOINTS) {
-    try {
-      const res = await fetch(`${baseUrl}/v0/management/api-call`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${managementKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          auth_index: authIndex,
-          method: 'POST',
-          url: endpoint,
-          header: {
-            Authorization: 'Bearer $TOKEN$',
-            'Content-Type': 'application/json',
-            'User-Agent': 'antigravity/1.11.5 cpa-quota',
-          },
-          data: JSON.stringify(requestData),
-        }),
-        signal: createRequestSignal(signal),
-      });
-
-      const parsed = await parseApiCallEnvelope(res);
-      if (!parsed.ok) {
-        lastStatusCode = parsed.statusCode;
-        if (parsed.error?.message) {
-          lastErrorMessage = parsed.error.message;
-        }
-        continue;
-      }
-
-      if (parsed.body && typeof parsed.body === 'object' && 'models' in parsed.body) {
-        const rawModels = (parsed.body as { models: unknown }).models;
-        if (rawModels && typeof rawModels === 'object' && rawModels !== null) {
-          modelsObj = rawModels as Record<string, unknown>;
-          break; // Success!
-        }
-      }
-    } catch {
-      // try next fallback
-    }
-  }
-
-  if (!modelsObj) {
-    const sanitized = sanitizeErrorMessage(lastErrorMessage, lastStatusCode || undefined);
     return {
       ok: false,
-      windows: [
-        { label: 'Claude & GPT models', remainingPercent: null },
-        { label: 'Gemini models', remainingPercent: null },
-      ],
-      error: {
-        status: lastStatusCode || undefined,
-        message: sanitized,
-      },
+      windows: [],
+      error: { message: 'Failed to query quota' },
     };
   }
 
-  // Parse into two standard Antigravity families
-  const families: QuotaWindow[] = [
-    { label: 'Claude & GPT models', remainingPercent: null },
-    { label: 'Gemini models', remainingPercent: null },
+  const windows: QuotaWindow[] = [
+    windowMap['gemini-5h'],
+    windowMap['gemini-weekly'],
+    windowMap['claude-gpt-5h'],
+    windowMap['claude-gpt-weekly'],
   ];
 
-  for (const [modelId, rawModel] of Object.entries(modelsObj)) {
-    const normalized = modelId.toLowerCase().replace(/_/g, '-');
-    const isClaude46 =
-      normalized.startsWith('claude-') &&
-      (normalized.includes('4-6') || normalized.includes('4.6'));
-
-    let familyIdx = -1;
-    if (isClaude46 || normalized.startsWith('gpt-')) {
-      familyIdx = 0;
-    } else if (normalized.startsWith('gemini-3.') || normalized.startsWith('gemini-3-')) {
-      familyIdx = 1;
-    } else {
-      continue;
-    }
-
-    const model = (rawModel && typeof rawModel === 'object') ? (rawModel as Record<string, unknown>) : {};
-    const quota = (model.quotaInfo && typeof model.quotaInfo === 'object')
-      ? (model.quotaInfo as Record<string, unknown>)
-      : (model.quota_info && typeof model.quota_info === 'object')
-        ? (model.quota_info as Record<string, unknown>)
-        : model;
-
-    const rawRemaining = parseNumberValue(quota.remainingFraction ?? quota.remaining_fraction ?? quota.remaining);
-    const resetAt = parseTimeValue(quota.resetTime ?? quota.reset_time ?? quota.reset_at ?? quota.resets_at);
-
-    let remaining: number;
-    if (rawRemaining === undefined) {
-      if (!resetAt) {
-        continue;
-      }
-      remaining = 0;
-    } else {
-      const frac = rawRemaining <= 1.0 ? rawRemaining * 100 : rawRemaining;
-      remaining = clamp(Math.round(frac), 0, 100);
-    }
-
-    const targetWindow = families[familyIdx];
-    if (targetWindow) {
-      mergeFamilyQuota(targetWindow, remaining, resetAt);
-    }
-  }
-
-  const hasAnyQuota = families[0]?.remainingPercent !== null || families[1]?.remainingPercent !== null;
+  const hasAnyQuota = windows.some((w) => w.remainingPercent !== null);
 
   return {
     ok: hasAnyQuota,
-    windows: families,
+    windows,
     error: hasAnyQuota ? undefined : { message: 'no supported model quota returned' },
   };
 }

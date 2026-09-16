@@ -1,0 +1,3 @@
+# Use retrieveUserQuotaSummary endpoint for Antigravity quotas
+
+The extension queries Antigravity upstream quotas using `https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary` with `{"project": "aicode-consumers"}` instead of scraping and aggregating models from `:fetchAvailableModels`. This dedicated endpoint provides structured Quota Windows for both Gemini and third-party (Claude & GPT) model families directly separated into 5-hour and weekly allowance windows (`window: "5h"` and `"weekly"`), with accurate `remainingFraction` and `resetTime`. Obsolete project discovery via `:loadCodeAssist` and model listing fallbacks are removed.
