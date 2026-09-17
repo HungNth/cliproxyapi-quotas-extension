@@ -437,7 +437,7 @@ function getTextColor(percent: number | null): string {
                 </span>
                 <div class="flex items-center gap-1.5">
                   <span
-                    v-if="account.manualResetCredits !== undefined"
+                    v-if="account.provider === 'codex' && account.manualResetCredits !== undefined"
                     class="text-[10px] font-mono px-1.5 py-0.5 rounded"
                     :class="account.manualResetCredits === 0
                       ? 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400'

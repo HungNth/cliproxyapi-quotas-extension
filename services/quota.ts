@@ -156,6 +156,9 @@ export async function discoverProviderAccounts(
             if (res.ok) {
               acc.windows = res.windows;
               acc.manualResetCredits = res.manualResetCredits;
+              if (acc.statusBadge?.toLowerCase() === '[error]') {
+                acc.statusBadge = undefined;
+              }
             } else {
               acc.error = res.error;
             }
@@ -163,13 +166,20 @@ export async function discoverProviderAccounts(
             const res = await fetchClaudeQuota(baseUrl, managementKey, acc.authIndex, signal);
             if (res.ok) {
               acc.windows = res.windows;
+              if (acc.statusBadge?.toLowerCase() === '[error]') {
+                acc.statusBadge = undefined;
+              }
             } else {
               acc.error = res.error;
             }
           } else if (acc.provider === 'antigravity') {
             const res = await fetchAntigravityQuota(baseUrl, managementKey, acc.authIndex, signal);
             acc.windows = res.windows;
-            if (!res.ok && res.error) {
+            if (res.ok) {
+              if (acc.statusBadge?.toLowerCase() === '[error]') {
+                acc.statusBadge = undefined;
+              }
+            } else if (res.error) {
               acc.error = res.error;
             }
           }

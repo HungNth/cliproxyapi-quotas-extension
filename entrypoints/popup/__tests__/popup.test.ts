@@ -1060,6 +1060,199 @@ describe('Ticket 05: Add Antigravity quota-family support', () => {
     expect(text).toContain('Too many requests on upstream account');
   });
 
+  it('suppresses stale [error] status badge when live quota windows load successfully across providers', async () => {
+    global.fetch = vi.fn().mockImplementation(async (url: string, opts?: RequestInit) => {
+      if (url.includes('/auth-files')) {
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers({ 'X-CPA-VERSION': '7.2.0' }),
+          json: async () => ({
+            files: [
+              { auth_index: 'anti-stale-err', provider: 'antigravity', email: 'stale-anti@google.com', status: 'error' },
+              { auth_index: 'codex-stale-err', provider: 'codex', email: 'stale-codex@openai.com', status: 'error' },
+              { auth_index: 'claude-stale-err', provider: 'claude', email: 'stale-claude@anthropic.com', status: 'error' },
+            ],
+          }),
+        };
+      }
+      if (url.includes('/latest-version')) {
+        return { ok: true, json: async () => ({ 'latest-version': 'v7.2.0' }) };
+      }
+      if (url.includes('/api-call')) {
+        const body = typeof opts?.body === 'string' ? JSON.parse(opts.body) : {};
+        if (body.auth_index === 'anti-stale-err') {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              status_code: 200,
+              body: JSON.stringify({
+                groups: [
+                  {
+                    displayName: 'Gemini Models',
+                    buckets: [
+                      { window: '5h', remainingFraction: 0.9, resetTime: new Date(Date.now() + 3600000).toISOString() },
+                    ],
+                  },
+                ],
+              }),
+            }),
+          };
+        }
+        if (body.auth_index === 'codex-stale-err') {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              status_code: 200,
+              body: {
+                rate_limit: {
+                  primary_window: { used_percent: 10, reset_at: new Date(Date.now() + 3600000).toISOString() },
+                },
+              },
+            }),
+          };
+        }
+        if (body.auth_index === 'claude-stale-err') {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              status_code: 200,
+              body: {
+                five_hour: { utilization: 20, resets_at: new Date(Date.now() + 7200000).toISOString() },
+              },
+            }),
+          };
+        }
+        return { ok: true, status: 200, json: async () => ({ status_code: 200, body: '{}' }) };
+      }
+      return { ok: false, status: 404 };
+    });
+
+    const wrapper = mount(App);
+    await flushPromises();
+    await wrapper.vm.$nextTick();
+
+    const text = wrapper.text();
+    expect(text).toContain('stale-anti@google.com');
+    expect(text).toContain('stale-codex@openai.com');
+    expect(text).toContain('stale-claude@anthropic.com');
+    expect(text).toContain('Gemini (5-hour)');
+    // [error] badge must be suppressed across all 3 providers because live quotas loaded successfully
+    expect(text).not.toContain('[error]');
+  });
+
+  it('retains [error] badge when live quota query fails', async () => {
+    global.fetch = vi.fn().mockImplementation(async (url: string, opts?: RequestInit) => {
+      if (url.includes('/auth-files')) {
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers({ 'X-CPA-VERSION': '7.2.0' }),
+          json: async () => ({
+            files: [
+              { auth_index: 'anti-real-err', provider: 'antigravity', email: 'real-err@google.com', status: 'error' },
+            ],
+          }),
+        };
+      }
+      if (url.includes('/latest-version')) {
+        return { ok: true, json: async () => ({ 'latest-version': 'v7.2.0' }) };
+      }
+      if (url.includes('/api-call')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            status_code: 401,
+            body: JSON.stringify({ error: { message: 'Permission denied on Google Cloud' } }),
+          }),
+        };
+      }
+      return { ok: false, status: 404 };
+    });
+
+    const wrapper = mount(App);
+    await flushPromises();
+    await wrapper.vm.$nextTick();
+
+    const text = wrapper.text();
+    expect(text).toContain('real-err@google.com');
+    expect(text).toContain('[error]');
+    expect(text).toContain('Permission denied on Google Cloud');
+  });
+
+  it('scopes Manual Reset Allowance strictly to Codex Provider Accounts', async () => {
+    global.fetch = vi.fn().mockImplementation(async (url: string) => {
+      if (url.includes('/auth-files')) {
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers({ 'X-CPA-VERSION': '7.2.0' }),
+          json: async () => ({
+            files: [
+              { auth_index: 'codex-resets', provider: 'codex', email: 'codex@openai.com' },
+              { auth_index: 'anti-no-resets', provider: 'antigravity', email: 'anti@google.com' },
+              { auth_index: 'claude-no-resets', provider: 'claude', email: 'claude@anthropic.com' },
+            ],
+          }),
+        };
+      }
+      if (url.includes('/latest-version')) {
+        return { ok: true, json: async () => ({ 'latest-version': 'v7.2.0' }) };
+      }
+      if (url.includes('/api-call')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            status_code: 200,
+            body: {
+              rate_limit: { primary_window: { used_percent: 10 } },
+              rate_limit_reset_credits: { available_count: 5 },
+            },
+          }),
+        };
+      }
+      return { ok: false, status: 404 };
+    });
+
+    const wrapper = mount(App);
+    await flushPromises();
+    await wrapper.vm.$nextTick();
+
+    // Verify template rendering: manually set manualResetCredits on non-Codex account to test template guard
+    const groups = (wrapper.vm as unknown as { groups: Array<{ accounts: Array<{ provider: string; manualResetCredits?: number }> }> }).groups;
+    const antiGroup = groups.find((g) => g.accounts.some((a) => a.provider === 'antigravity'));
+    if (antiGroup?.accounts[0]) {
+      antiGroup.accounts[0].manualResetCredits = 99;
+    }
+    const claudeGroup = groups.find((g) => g.accounts.some((a) => a.provider === 'claude'));
+    if (claudeGroup?.accounts[0]) {
+      claudeGroup.accounts[0].manualResetCredits = 88;
+    }
+    await wrapper.vm.$nextTick();
+
+    const text = wrapper.text();
+    expect(text).toContain('Manual resets: 5');
+    expect(text).not.toContain('Manual resets: 99');
+    expect(text).not.toContain('Manual resets: 88');
+
+    const codexIdx = text.indexOf('Codex');
+    const antiIdx = text.indexOf('Antigravity');
+    const claudeIdx = text.indexOf('Claude');
+
+    const codexSection = text.slice(codexIdx, antiIdx);
+    const antiSection = text.slice(antiIdx, claudeIdx);
+    const claudeSection = text.slice(claudeIdx);
+
+    expect(codexSection).toContain('Manual resets: 5');
+    expect(antiSection).not.toContain('Manual resets');
+    expect(claudeSection).not.toContain('Manual resets');
+  });
+
   it('handles account-level upstream error without leaking tokens and preserves Partial Quota Snapshot', async () => {
     const apiCallsMade: Array<{ url?: string }> = [];
 
