@@ -148,7 +148,7 @@ export async function discoverProviderAccounts(
 
     // Run live quota fetch for eligible accounts (max 8 concurrent)
     const quotaTasks = allAccounts
-      .filter((acc) => !acc.disabled && !acc.unavailable && acc.authIndex.length > 0)
+      .filter((acc) => !acc.disabled && acc.authIndex.length > 0)
       .map((acc) => async () => {
         try {
           if (acc.provider === 'codex') {

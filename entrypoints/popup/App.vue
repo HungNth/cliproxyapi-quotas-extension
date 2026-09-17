@@ -11,7 +11,6 @@ import { discoverProviderAccounts, fetchLatestVersion } from '@/services/quota';
 import {
   type ProviderGroup,
   formatCountdown,
-  formatLocalResetTime,
   compareVersions,
   getQuotaHealthColors,
 } from '@/utils/providers';
@@ -464,7 +463,7 @@ function getTextColor(percent: number | null): string {
                       <span
                         v-if="win.resetAt"
                         class="text-[10px] text-zinc-400 dark:text-zinc-500"
-                        :title="formatLocalResetTime(win.resetAt)"
+                        :title="new Date(win.resetAt).toLocaleString()"
                       >
                         {{ formatCountdown(win.resetAt, currentTime) }}
                       </span>

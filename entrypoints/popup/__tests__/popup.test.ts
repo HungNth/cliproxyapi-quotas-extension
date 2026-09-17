@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { fakeBrowser } from 'wxt/testing/fake-browser';
 import App from '../App.vue';
-import { getQuotaHealthColors } from '@/utils/providers';
+import { getQuotaHealthColors, formatCountdown, formatLocalResetTime } from '@/utils/providers';
 
 describe('Ticket 01: Configure one CLIProxyAPI Instance', () => {
   beforeEach(() => {
@@ -903,28 +903,28 @@ describe('Ticket 05: Add Antigravity quota-family support', () => {
     expect(text).toContain('Gemini (Weekly)');
     expect(text).toContain('89%');
 
-    expect(text).toContain('Claude & GPT (5-hour)');
+    expect(text).toContain('Claude/GPT (5-hour)');
     expect(text).toContain('0%');
 
-    expect(text).toContain('Claude & GPT (Weekly)');
+    expect(text).toContain('Claude/GPT (Weekly)');
     expect(text).toContain('25%');
 
-    // Verify ordering in DOM: Gemini 5h before Gemini Weekly before Claude & GPT 5h before Claude & GPT Weekly
+    // Verify ordering in DOM: Gemini 5h before Gemini Weekly before Claude/GPT 5h before Claude/GPT Weekly
     const g5hIdx = text.indexOf('Gemini (5-hour)');
     const gWeeklyIdx = text.indexOf('Gemini (Weekly)');
-    const c5hIdx = text.indexOf('Claude & GPT (5-hour)');
-    const cWeeklyIdx = text.indexOf('Claude & GPT (Weekly)');
+    const c5hIdx = text.indexOf('Claude/GPT (5-hour)');
+    const cWeeklyIdx = text.indexOf('Claude/GPT (Weekly)');
 
     expect(g5hIdx).toBeLessThan(gWeeklyIdx);
     expect(gWeeklyIdx).toBeLessThan(c5hIdx);
     expect(c5hIdx).toBeLessThan(cWeeklyIdx);
 
-    // Verify countdowns rendered
-    expect(text).toContain('in 3h');
-    expect(text).toContain('in 2h');
+    // Verify combined timestamp and countdown rendered (DD/MM HH:mm in ...)
+    expect(text).toMatch(/\d{2}\/\d{2} \d{2}:\d{2} in 3h/);
+    expect(text).toMatch(/\d{2}\/\d{2} \d{2}:\d{2} in 2h/);
   });
 
-  it('skips disabled and unavailable Antigravity accounts from upstream query and renders badges', async () => {
+  it('skips disabled accounts but queries unavailable accounts to render 0% quota windows and status badge (ADR 0005)', async () => {
     const apiCallsMade: Array<{ url?: string; auth_index?: string }> = [];
 
     global.fetch = vi.fn().mockImplementation(async (url: string, opts?: RequestInit) => {
@@ -937,6 +937,7 @@ describe('Ticket 05: Add Antigravity quota-family support', () => {
             files: [
               { auth_index: 'anti-disabled', provider: 'antigravity', email: 'dis@google.com', disabled: true },
               { auth_index: 'anti-unavail', provider: 'antigravity', email: 'unavail@google.com', unavailable: true },
+              { auth_index: 'anti-avail', provider: 'antigravity', email: 'avail@google.com' },
             ],
           }),
         };
@@ -947,6 +948,46 @@ describe('Ticket 05: Add Antigravity quota-family support', () => {
       if (url.includes('/api-call')) {
         const body = typeof opts?.body === 'string' ? JSON.parse(opts.body) : {};
         apiCallsMade.push(body);
+        if (body.auth_index === 'anti-unavail') {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              status_code: 200,
+              body: JSON.stringify({
+                groups: [
+                  {
+                    displayName: 'Gemini Models',
+                    buckets: [
+                      { window: '5h', remainingFraction: 0, resetTime: new Date(Date.now() + 7200000).toISOString() },
+                      { window: 'weekly', remainingFraction: 0, resetTime: new Date(Date.now() + 86400000).toISOString() },
+                    ],
+                  },
+                ],
+              }),
+            }),
+          };
+        }
+        if (body.auth_index === 'anti-avail') {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              status_code: 200,
+              body: JSON.stringify({
+                groups: [
+                  {
+                    displayName: 'Gemini Models',
+                    buckets: [
+                      { window: '5h', remainingFraction: 0.8, resetTime: new Date(Date.now() + 7200000).toISOString() },
+                      { window: 'weekly', remainingFraction: 0.8, resetTime: new Date(Date.now() + 86400000).toISOString() },
+                    ],
+                  },
+                ],
+              }),
+            }),
+          };
+        }
         return { ok: true, status: 200, json: async () => ({ status_code: 200, body: '{}' }) };
       }
       return { ok: false, status: 404 };
@@ -956,14 +997,67 @@ describe('Ticket 05: Add Antigravity quota-family support', () => {
     await flushPromises();
     await wrapper.vm.$nextTick();
 
-    // No api-calls should be made for disabled or unavailable accounts
-    expect(apiCallsMade.length).toBe(0);
+    // Disabled account is skipped, but unavailable and available accounts are queried
+    expect(apiCallsMade.length).toBe(2);
+    const indices = apiCallsMade.map((c) => c.auth_index);
+    expect(indices).toContain('anti-unavail');
+    expect(indices).toContain('anti-avail');
+    expect(indices).not.toContain('anti-disabled');
 
     const text = wrapper.text();
     expect(text).toContain('dis@google.com');
     expect(text).toContain('[disabled]');
     expect(text).toContain('unavail@google.com');
     expect(text).toContain('[unavailable]');
+    expect(text).toContain('avail@google.com');
+    expect(text).toContain('Gemini (5-hour)');
+    expect(text).toContain('0%');
+    expect(text).toMatch(/\d{2}\/\d{2} \d{2}:\d{2} in/);
+
+    // unavail@google.com (0%) sorts before avail@google.com (80%)
+    const unavailIdx = text.indexOf('unavail@google.com');
+    const availIdx = text.indexOf('avail@google.com');
+    expect(unavailIdx).toBeLessThan(availIdx);
+  });
+
+  it('preserves [unavailable] badge and shows sanitized error if unavailable account quota query fails', async () => {
+    global.fetch = vi.fn().mockImplementation(async (url: string, opts?: RequestInit) => {
+      if (url.includes('/auth-files')) {
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers({ 'X-CPA-VERSION': '7.2.0' }),
+          json: async () => ({
+            files: [
+              { auth_index: 'codex-unavail-err', provider: 'codex', email: 'unavail-err@openai.com', unavailable: true },
+            ],
+          }),
+        };
+      }
+      if (url.includes('/latest-version')) {
+        return { ok: true, json: async () => ({ 'latest-version': 'v7.2.0' }) };
+      }
+      if (url.includes('/api-call')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            status_code: 429,
+            body: JSON.stringify({ error: { message: 'Too many requests on upstream account' } }),
+          }),
+        };
+      }
+      return { ok: false, status: 404 };
+    });
+
+    const wrapper = mount(App);
+    await flushPromises();
+    await wrapper.vm.$nextTick();
+
+    const text = wrapper.text();
+    expect(text).toContain('unavail-err@openai.com');
+    expect(text).toContain('[unavailable]');
+    expect(text).toContain('Too many requests on upstream account');
   });
 
   it('handles account-level upstream error without leaking tokens and preserves Partial Quota Snapshot', async () => {
@@ -1327,5 +1421,110 @@ describe('Quota Health Color Thresholds', () => {
       barClass: 'bg-zinc-400',
       textClass: 'text-zinc-500',
     });
+  });
+
+  it('queries unavailable Codex and Claude accounts to render 0% windows and status badge (ADR 0005)', async () => {
+    const apiCallsMade: Array<{ url?: string; auth_index?: string }> = [];
+
+    global.fetch = vi.fn().mockImplementation(async (url: string, opts?: RequestInit) => {
+      if (url.includes('/auth-files')) {
+        return {
+          ok: true,
+          status: 200,
+          headers: new Headers({ 'X-CPA-VERSION': '7.2.0' }),
+          json: async () => ({
+            files: [
+              { auth_index: 'codex-unavail', provider: 'codex', email: 'codex-unavail@openai.com', unavailable: true },
+              { auth_index: 'claude-unavail', provider: 'claude', email: 'claude-unavail@anthropic.com', unavailable: true },
+            ],
+          }),
+        };
+      }
+      if (url.includes('/latest-version')) {
+        return { ok: true, json: async () => ({ 'latest-version': 'v7.2.0' }) };
+      }
+      if (url.includes('/api-call')) {
+        const body = typeof opts?.body === 'string' ? JSON.parse(opts.body) : {};
+        apiCallsMade.push(body);
+        if (body.auth_index === 'codex-unavail') {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              status_code: 200,
+              body: {
+                rate_limit: {
+                  primary_window: { used_percent: 100, reset_at: new Date(Date.now() + 3600000).toISOString() },
+                },
+              },
+            }),
+          };
+        }
+        if (body.auth_index === 'claude-unavail') {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              status_code: 200,
+              body: {
+                five_hour: { utilization: 100, resets_at: new Date(Date.now() + 7200000).toISOString() },
+              },
+            }),
+          };
+        }
+        return { ok: true, status: 200, json: async () => ({ status_code: 200, body: '{}' }) };
+      }
+      return { ok: false, status: 404 };
+    });
+
+    const wrapper = mount(App);
+    await flushPromises();
+    await wrapper.vm.$nextTick();
+
+    // Codex makes 2 calls (usage + credits), Claude makes 1 call
+    expect(apiCallsMade.length).toBe(3);
+    const indices = apiCallsMade.map((c) => c.auth_index);
+    expect(indices).toContain('codex-unavail');
+    expect(indices).toContain('claude-unavail');
+
+    const text = wrapper.text();
+    expect(text).toContain('codex-unavail@openai.com');
+    expect(text).toContain('claude-unavail@anthropic.com');
+    expect(text).toContain('[unavailable]');
+    expect(text).toContain('5-hour');
+    expect(text).toContain('0%');
+  });
+
+  it('formats combined local reset time and relative countdown in DD/MM HH:mm in <relative> format', () => {
+    const fixedNow = new Date('2026-09-17T12:00:00.000Z').getTime();
+    const d = new Date(fixedNow + 2 * 3600 * 1000 + 15 * 60 * 1000); // 2h 15m later
+    const resetIso = d.toISOString();
+
+    const localTime = formatLocalResetTime(resetIso);
+    expect(localTime).toMatch(/^\d{2}\/\d{2} \d{2}:\d{2}$/);
+    const formatted = formatCountdown(resetIso, fixedNow);
+    expect(formatted).toBe(`${localTime} in 2h 15m`);
+  });
+
+  it('formats past reset time as DD/MM HH:mm ready', () => {
+    const fixedNow = new Date('2026-09-17T12:00:00.000Z').getTime();
+    const past = new Date(fixedNow - 60 * 1000); // 1 minute ago
+    const pastIso = past.toISOString();
+
+    const localTime = formatLocalResetTime(pastIso);
+    const formatted = formatCountdown(pastIso, fixedNow);
+    expect(formatted).toBe(`${localTime} ready`);
+  });
+
+  it('returns empty string when resetAt is missing or invalid', () => {
+    expect(formatCountdown(undefined)).toBe('');
+    expect(formatCountdown(null as unknown as string)).toBe('');
+    expect(formatCountdown('')).toBe('');
+    expect(formatCountdown('not-a-date')).toBe('');
+
+    expect(formatLocalResetTime(undefined)).toBe('');
+    expect(formatLocalResetTime(null as unknown as string)).toBe('');
+    expect(formatLocalResetTime('')).toBe('');
+    expect(formatLocalResetTime('not-a-date')).toBe('');
   });
 });

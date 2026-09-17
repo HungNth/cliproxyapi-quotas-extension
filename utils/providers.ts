@@ -223,33 +223,36 @@ export function parseTimeValue(raw: unknown): string | undefined {
 }
 
 export function formatCountdown(resetAt?: string, now: number = Date.now()): string {
-  if (!resetAt) return '';
+  if (!resetAt || typeof resetAt !== 'string') return '';
   const target = new Date(resetAt).getTime();
   if (isNaN(target)) return '';
   const sec = Math.floor((target - now) / 1000);
-  if (sec <= 0) return 'ready';
-  if (sec < 60) return 'in <1m';
-  if (sec < 3600) return `in ${Math.floor(sec / 60)}m`;
+  const localTime = formatLocalResetTime(resetAt);
+  const prefix = localTime ? `${localTime} ` : '';
+
+  if (sec <= 0) return `${prefix}ready`;
+  if (sec < 60) return `${prefix}in <1m`;
+  if (sec < 3600) return `${prefix}in ${Math.floor(sec / 60)}m`;
   if (sec < 86400) {
     const h = Math.floor(sec / 3600);
     const m = Math.floor((sec % 3600) / 60);
-    return `in ${h}h ${m}m`;
+    return `${prefix}in ${h}h ${m}m`;
   }
   const d = Math.floor(sec / 86400);
   const h = Math.floor((sec % 86400) / 3600);
-  return `in ${d}d ${h}h`;
+  return `${prefix}in ${d}d ${h}h`;
 }
 
 export function formatLocalResetTime(resetAt?: string): string {
-  if (!resetAt) return '';
+  if (!resetAt || typeof resetAt !== 'string') return '';
   try {
     const d = new Date(resetAt);
     if (isNaN(d.getTime())) return '';
-    const month = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
     const hours = String(d.getHours()).padStart(2, '0');
     const mins = String(d.getMinutes()).padStart(2, '0');
-    return `${month}/${day} ${hours}:${mins}`;
+    return `${day}/${month} ${hours}:${mins}`;
   } catch {
     return '';
   }

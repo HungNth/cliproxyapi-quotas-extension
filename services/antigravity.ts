@@ -26,8 +26,8 @@ export async function fetchAntigravityQuota(
   const windowMap: Record<WindowKey, QuotaWindow> = {
     'gemini-5h': { label: 'Gemini (5-hour)', remainingPercent: null },
     'gemini-weekly': { label: 'Gemini (Weekly)', remainingPercent: null },
-    'claude-gpt-5h': { label: 'Claude & GPT (5-hour)', remainingPercent: null },
-    'claude-gpt-weekly': { label: 'Claude & GPT (Weekly)', remainingPercent: null },
+    'claude-gpt-5h': { label: 'Claude/GPT (5-hour)', remainingPercent: null },
+    'claude-gpt-weekly': { label: 'Claude/GPT (Weekly)', remainingPercent: null },
   };
 
   try {
